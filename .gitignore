@@ -4,3 +4,9 @@ node_modules/
 .env.local
 desktop-installer/dist/
 desktop-portable/dist/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
