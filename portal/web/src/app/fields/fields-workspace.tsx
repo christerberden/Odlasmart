@@ -66,12 +66,10 @@ function getPlotClasses(type: string) {
 function getFieldSize(field: FieldRow) {
   const widthM = Math.max(field.widthM ?? 1, 0.2);
   const lengthM = Math.max(field.lengthM ?? 1, 0.2);
-  const shortSide = Math.min(widthM, lengthM);
-  const longSide = Math.max(widthM, lengthM);
 
   return {
-    width: Math.min(Math.max(longSide * 58, 160), 720),
-    height: Math.min(Math.max(shortSide * 86, 58), 170),
+    width: Math.min(Math.max(widthM * 96, 54), 720),
+    height: Math.min(Math.max(lengthM * 62, 54), 760),
   };
 }
 
@@ -79,6 +77,7 @@ function getFieldStyle(field: FieldRow, placement: Placement, zoom: number): CSS
   const size = getFieldSize(field);
 
   return {
+    ["--content-rotation" as string]: `${-placement.rotationDeg}deg`,
     height: `${size.height * zoom}px`,
     left: `${placement.x * zoom}px`,
     top: `${placement.y * zoom}px`,
@@ -468,7 +467,6 @@ export function FieldsWorkspace({
       <section className="portal-fields-surface min-w-0 rounded-[22px] border border-[var(--border)] bg-white/90 p-5 shadow-[0_18px_40px_rgba(22,58,54,0.06)]">
         <div className="portal-fields-head">
           <div>
-            <p className="section-kicker">Databas 2</p>
             <div className="portal-fields-title-row">
               <h2 className="mt-1 text-2xl font-light tracking-[-0.04em] text-[var(--foreground)]">Översikt</h2>
               <button aria-label="Hjälp om odlingsytor" className="portal-help-button" onClick={() => helpDialogRef.current?.showModal()} type="button">?</button>
@@ -527,11 +525,10 @@ export function FieldsWorkspace({
                   >
                     <div className={getPlotClasses(field.type)}>
                       <span className="portal-field-plot__surface" aria-hidden="true" />
-                      <div className="relative z-10 flex min-w-0 items-center justify-between gap-2">
+                      <div className="portal-field-plot__content relative z-10 flex min-w-0 items-center justify-between gap-2">
                         <span className="min-w-0 truncate rounded-full bg-white/75 px-2 py-1 text-xs font-semibold text-[var(--primary-strong)]">{field.name}</span>
-                        {field.areaM2 != null ? <span className="shrink-0 rounded-full bg-white/55 px-2 py-1 text-[0.68rem] font-medium text-[var(--ink-muted)]">{formatArea(field.areaM2)}</span> : null}
                       </div>
-                      {cropSummary ? <span className="relative z-10 max-w-full truncate rounded-full bg-white/65 px-2 py-1 text-[0.72rem] text-[var(--ink-muted)]">{cropSummary}</span> : null}
+                      {cropSummary ? <span className="portal-field-plot__content relative z-10 max-w-full truncate rounded-full bg-white/65 px-2 py-1 text-[0.72rem] text-[var(--ink-muted)]">{cropSummary}</span> : null}
                     </div>
                   </button>
                 );
@@ -558,7 +555,7 @@ export function FieldsWorkspace({
               {fieldsWithoutSection.length > 0 ? ` · ${fieldsWithoutSection.length} utan skifte` : ""}
             </p>
           </div>
-          {selectedField ? (
+          {false && selectedField ? (
             <div className="portal-selected-field-card mt-4" style={{ ["--section-color" as string]: getSectionColor(selectedField.sectionId, sections) } as CSSProperties}>
               <strong>{selectedField.name}</strong>
               <span>{getFieldTypeLabel(selectedField.type)} · {formatArea(selectedField.areaM2)} · {formatDimensions(selectedField)}</span>
@@ -592,7 +589,7 @@ export function FieldsWorkspace({
                   <div className="portal-bed-section__beds">
                     {sectionFields.length > 0 ? (
                       sectionFields.map((field) => (
-                        <div className={`portal-bed-row ${field.id === selectedField?.id ? "is-selected" : ""}`} key={field.id}>
+                        <div className={`portal-bed-row ${field.id === selectedField?.id ? "is-selected" : ""}`} key={field.id} style={{ ["--section-color" as string]: getSectionColor(section.id, sections) } as CSSProperties}>
                           <button onClick={() => { setSelectedFieldId(field.id); openFieldEditor(field); }} type="button">
                             <span className="portal-bed-dot" />
                             <strong>{field.name}</strong>
@@ -620,7 +617,7 @@ export function FieldsWorkspace({
               </summary>
               <div className="portal-bed-section__beds">
                 {fieldsWithoutSection.map((field) => (
-                  <div className={`portal-bed-row ${field.id === selectedField?.id ? "is-selected" : ""}`} key={field.id}>
+                  <div className={`portal-bed-row ${field.id === selectedField?.id ? "is-selected" : ""}`} key={field.id} style={{ ["--section-color" as string]: getSectionColor(null, sections) } as CSSProperties}>
                     <button onClick={() => { setSelectedFieldId(field.id); openFieldEditor(field); }} type="button">
                       <span className="portal-bed-dot" />
                       <strong>{field.name}</strong>

@@ -342,7 +342,7 @@ body[data-theme="dark"] {
   height: clamp(360px, calc(100vh - 20rem), 680px);
   max-width: 100%;
   margin-top: 1rem;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid rgba(36, 49, 40, 0.08);
   border-radius: 30px;
@@ -474,7 +474,7 @@ body[data-theme="dark"] {
   position: relative;
   min-width: 100%;
   min-height: 520px;
-  width: 1600px;
+  width: 100%;
   height: 1100px;
 }
 
@@ -506,11 +506,24 @@ body[data-theme="dark"] {
   align-content: start;
   gap: 0.45rem;
   overflow: hidden;
-  border: 1px solid rgba(47, 107, 79, 0.18);
+  border: 1px solid rgba(47, 107, 79, 0.28);
   border-radius: 10px;
   padding: 0.75rem;
-  box-shadow: 0 10px 24px rgba(23, 51, 49, 0.14);
-  border-left: 0.5rem solid var(--section-color, rgba(59, 96, 94, 0.24));
+  background: transparent;
+  box-shadow: 0 6px 16px rgba(23, 51, 49, 0.08);
+}
+
+.portal-field-plot::before {
+  content: "";
+  position: absolute;
+  top: 0.45rem;
+  left: 0.45rem;
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 999px;
+  background: var(--section-color, #6eb45d);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55);
+  z-index: 2;
 }
 
 .portal-field-plot__surface {
@@ -518,70 +531,44 @@ body[data-theme="dark"] {
   inset: 0.35rem;
   border-radius: inherit;
   pointer-events: none;
+  display: none;
+}
+
+.portal-field-plot__content {
+  transform: rotate(var(--content-rotation, 0deg));
+  transform-origin: center center;
 }
 
 .portal-field-plot--bed {
-  border-color: rgba(86, 61, 38, 0.42);
+  border-color: rgba(59, 96, 94, 0.32);
   border-radius: 10px;
-  background: #8f6848;
-}
-
-.portal-field-plot--bed .portal-field-plot__surface {
-  background:
-    linear-gradient(rgba(97, 74, 45, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(97, 74, 45, 0.08) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(255, 248, 240, 0.58), rgba(255, 248, 240, 0.18));
-  background-size: 18px 18px, 18px 18px, auto;
 }
 
 .portal-field-plot--greenhouse {
   border-style: dashed;
   border-color: rgba(100, 164, 192, 0.42);
   border-radius: 14px;
-  background: rgba(178, 222, 239, 0.42);
-}
-
-.portal-field-plot--greenhouse .portal-field-plot__surface {
-  background:
-    linear-gradient(180deg, rgba(236, 249, 255, 0.86), rgba(181, 224, 241, 0.48)),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.34) 0 12px, rgba(118, 170, 194, 0.22) 12px 13px);
 }
 
 .portal-field-plot--path {
   border-color: rgba(122, 129, 133, 0.28);
   border-radius: 10px;
-  background: #cfd3d5;
-}
-
-.portal-field-plot--path .portal-field-plot__surface {
-  background: linear-gradient(180deg, rgba(242, 244, 245, 0.96), rgba(206, 210, 212, 0.94));
 }
 
 .portal-field-plot--round {
   border-radius: 999px;
-  background: transparent;
-}
-
-.portal-field-plot--round .portal-field-plot__surface {
-  border-radius: 999px;
-  background: radial-gradient(circle at 50% 42%, rgba(225, 245, 218, 0.18), rgba(225, 245, 218, 0.04) 55%, transparent 56%);
 }
 
 .portal-field-plot--other {
   border-color: rgba(119, 88, 58, 0.34);
   border-radius: 10px;
-  background: rgba(185, 155, 123, 0.28);
-}
-
-.portal-field-plot--other .portal-field-plot__surface {
-  background: linear-gradient(180deg, rgba(233, 216, 197, 0.92), rgba(197, 169, 140, 0.82));
 }
 
 .portal-dialog {
   position: fixed;
   inset: 0;
-  width: min(640px, calc(100vw - 1.5rem));
-  max-width: calc(100vw - 1.5rem);
+  width: min(820px, calc(100vw - 1rem));
+  max-width: calc(100vw - 1rem);
   border: 0;
   border-radius: 28px;
   background: transparent;
@@ -606,6 +593,11 @@ body[data-theme="dark"] {
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 30px 80px rgba(23, 51, 49, 0.2);
   padding: 1.25rem;
+  scrollbar-gutter: stable both-edges;
+}
+
+.portal-dialog__card > * {
+  min-width: 0;
 }
 
 .portal-checkbox-row {

@@ -150,6 +150,51 @@ function getFieldType(formData: FormData) {
     : "other";
 }
 
+function getFieldPreviewSize(widthM: number | null, lengthM: number | null) {
+  return {
+    width: Math.min(Math.max((widthM ?? 1) * 96, 54), 720),
+    height: Math.min(Math.max((lengthM ?? 1) * 62, 54), 760),
+  };
+}
+
+function overlaps(
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  existing: { x: number; y: number; width: number; height: number }[],
+  gap = 28,
+) {
+  return existing.some((item) => (
+    left < item.x + item.width + gap &&
+    left + width + gap > item.x &&
+    top < item.y + item.height + gap &&
+    top + height + gap > item.y
+  ));
+}
+
+function findAvailablePlacement(
+  width: number,
+  height: number,
+  existing: { x: number; y: number; width: number; height: number }[],
+) {
+  const startX = 24;
+  const startY = 24;
+  const maxWidth = 1600;
+  const stepX = 36;
+  const stepY = 36;
+
+  for (let top = startY; top < 3000; top += stepY) {
+    for (let left = startX; left < maxWidth; left += stepX) {
+      if (!overlaps(left, top, width, height, existing)) {
+        return { x: left, y: top };
+      }
+    }
+  }
+
+  return { x: startX, y: startY + existing.length * stepY };
+}
+
 export async function createSection(formData: FormData) {
   const workspace = await getActiveWorkspaceOrRedirect();
   const name = getFormString(formData, "name");
@@ -189,14 +234,32 @@ export async function createField(formData: FormData) {
   const fieldCount = Math.max(1, Math.min(getOptionalInteger(formData, "fieldCount") ?? 1, 50));
   const widthM = getOptionalNumber(formData, "widthM");
   const lengthM = getOptionalNumber(formData, "lengthM");
-  const shortSideM = Math.max(Math.min(widthM ?? 0.75, lengthM ?? 10), 0.2);
-  const yStep = Math.round(shortSideM * 86 + 86);
   const sectionId = getFormString(formData, "sectionId") || null;
 
   const supabase = await createSupabaseServerClient();
   const fieldClient = supabase as unknown as FieldInsertClient;
-  const { error } = await fieldClient.from("fields").insert(
-    Array.from({ length: fieldCount }, (_, index) => ({
+  const { data: existingFields, error: existingFieldsError } = await fieldClient
+    .from("fields")
+    .select("position_x, position_y, width_m, length_m")
+    .eq("workspace_id", workspace.id);
+
+  if (existingFieldsError) {
+    redirect(`/fields?error=${encodeURIComponent(existingFieldsError.message)}`);
+  }
+
+  const size = getFieldPreviewSize(widthM, lengthM);
+  const occupied = (existingFields ?? []).map((field) => ({
+    x: field.position_x ?? 24,
+    y: field.position_y ?? 24,
+    width: getFieldPreviewSize(field.width_m, field.length_m).width,
+    height: getFieldPreviewSize(field.width_m, field.length_m).height,
+  }));
+
+  const inserts = Array.from({ length: fieldCount }, (_, index) => {
+    const placement = findAvailablePlacement(size.width, size.height, occupied);
+    occupied.push({ x: placement.x, y: placement.y, width: size.width, height: size.height });
+
+    return {
       workspace_id: workspace.id,
       section_id: sectionId,
       name: fieldCount > 1 ? `${name} ${index + 1}` : name,
@@ -204,11 +267,13 @@ export async function createField(formData: FormData) {
       description: getFormString(formData, "description"),
       width_m: widthM,
       length_m: lengthM,
-      position_x: 24,
-      position_y: 24 + index * yStep,
+      position_x: placement.x,
+      position_y: placement.y,
       rotation_deg: 0,
-    })),
-  );
+    };
+  });
+
+  const { error } = await fieldClient.from("fields").insert(inserts);
 
   if (error) {
     redirect(`/fields?error=${encodeURIComponent(error.message)}`);
