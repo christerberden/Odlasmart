@@ -238,7 +238,7 @@ export async function createField(formData: FormData) {
 
   const supabase = await createSupabaseServerClient();
   const fieldClient = supabase as unknown as FieldInsertClient;
-  const { data: existingFields, error: existingFieldsError } = await fieldClient
+  const { data: existingFields, error: existingFieldsError } = await supabase
     .from("fields")
     .select("position_x, position_y, width_m, length_m")
     .eq("workspace_id", workspace.id);
@@ -248,7 +248,12 @@ export async function createField(formData: FormData) {
   }
 
   const size = getFieldPreviewSize(widthM, lengthM);
-  const occupied = (existingFields ?? []).map((field) => ({
+  const occupied = (existingFields ?? []).map((field: {
+    position_x: number | null;
+    position_y: number | null;
+    width_m: number | null;
+    length_m: number | null;
+  }) => ({
     x: field.position_x ?? 24,
     y: field.position_y ?? 24,
     width: getFieldPreviewSize(field.width_m, field.length_m).width,
