@@ -1,0 +1,85 @@
+{
+  "name": "odlingskalender-desktop",
+  "version": "0.0.1",
+  "description": "Installerbar Windows-wrapper for Odlingskalender.",
+  "author": "Bjorkbacka",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis",
+    "dist:publish": "electron-builder --win nsis --publish always"
+  },
+  "dependencies": {
+    "electron-log": "^5.4.1",
+    "electron-updater": "^6.6.2"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "se.bjorkbacka.odlingskalender",
+    "productName": "Odlingskalender",
+    "directories": {
+      "output": "dist"
+    },
+    "electronUpdaterCompatibility": ">=2.16",
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false,
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../index.html",
+        "to": "web/index.html"
+      },
+      {
+        "from": "../app.js",
+        "to": "web/app.js"
+      },
+      {
+        "from": "../styles.css",
+        "to": "web/styles.css"
+      },
+      {
+        "from": "../seed_catalog_full.js",
+        "to": "web/seed_catalog_full.js"
+      },
+      {
+        "from": "../vendor",
+        "to": "web/vendor"
+      },
+      {
+        "from": "../assets",
+        "to": "web/assets"
+      },
+      {
+        "from": "../bjorkbacka-mark.svg",
+        "to": "web/bjorkbacka-mark.svg"
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "christerberden",
+        "repo": "Odlasmart",
+        "releaseType": "draft"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "nsis"
+      ]
+    }
+  }
+}

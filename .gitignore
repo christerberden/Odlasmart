@@ -1,0 +1,6 @@
+dist-electron/
+node_modules/
+.next/
+.env.local
+desktop-installer/dist/
+desktop-portable/dist/

@@ -1,0 +1,1571 @@
+﻿<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Odlingskalender</title>
+    <link rel="icon" type="image/svg+xml" href="./bjorkbacka-mark.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">
+            <img src="./bjorkbacka-mark.svg" alt="" />
+          </div>
+          <div class="brand-name">Lilla björkbacka</div>
+          <h1>Odlingskalender</h1>
+        </div>
+
+        <div class="sidebar-nav-stack">
+          <nav class="nav-list" aria-label="Huvudnavigation">
+            <p class="nav-group-label">Arbeta</p>
+            <button class="nav-item is-active" data-page="idag" data-icon="today">Idag</button>
+            <button class="nav-item" data-page="skord" data-icon="harvestCrop">Skörd</button>
+            <p class="nav-group-label">Planera</p>
+            <button class="nav-item" data-page="tidslinje" data-icon="plannerGrid">Odlingsplan</button>
+            <button class="nav-item" data-page="skiften" data-icon="gardenBeds">Odlingsytor</button>
+            <button class="nav-item" data-page="frolager" data-icon="seedBox">Mina fröer</button>
+            <button class="nav-item" data-page="egnafroer" data-icon="seedling" hidden>Egna grödor</button>
+          </nav>
+
+          <div class="sidebar-nav-footer">
+            <button class="nav-item" data-page="installningar" data-icon="settingsGear">Inställningar</button>
+          </div>
+        </div>
+
+        <section class="sidebar-panel sidebar-panel--weather">
+          <p class="panel-label">Väder</p>
+          <div id="weather-widget" class="weather-widget">
+            <div class="weather-widget__top">
+              <div class="weather-widget__current">
+                <strong id="weather-temp">--°</strong>
+                <span id="weather-current-icon" class="weather-current-icon" aria-hidden="true"></span>
+              </div>
+              <span id="weather-label">Hämtar väder…</span>
+            </div>
+            <div class="weather-widget__meta">
+              <span id="weather-location">Nuvarande plats</span>
+              <span id="weather-range">-- / --</span>
+            </div>
+            <div class="weather-widget__soil">
+              <span>Uppskattad jordtemp 5 cm</span>
+              <strong id="weather-soil-temp">--°C</strong>
+            </div>
+            <div class="weather-widget__actions">
+              <button id="weather-refresh-location" class="weather-refresh-button" type="button">Uppdatera plats</button>
+            </div>
+            <div id="weather-week" class="weather-week"></div>
+            <div id="weather-advice" class="weather-advice"></div>
+          </div>
+        </section>
+
+      </aside>
+
+      <main class="content">
+        <header class="topbar">
+          <div>
+            <h2 id="page-title">Idag</h2>
+          </div>
+
+          <div class="topbar-actions">
+            <div class="topbar-meta">
+            <div class="topbar-quick-actions" aria-label="Snabbåtgärder">
+              <span class="topbar-quick-actions__label">Snabbåtgärder</span>
+              <div class="topbar-quick-actions__buttons">
+                <button id="topbar-plan-next-button" class="button-primary" type="button">Planera nästa gröda</button>
+                <button id="topbar-log-harvest-button" class="button-secondary" type="button">Registrera skörd</button>
+              </div>
+            </div>
+            <div class="meta-pill">
+              <span>Grödor i försådd</span>
+              <strong id="topbar-presow-count">-</strong>
+            </div>
+            <div class="meta-pill">
+              <span>Planterade grödor</span>
+              <strong id="crop-count">-</strong>
+            </div>
+            <div class="meta-pill">
+              <span>Skördade grödor</span>
+              <strong id="topbar-harvested-count">-</strong>
+            </div>
+            <label class="filter-select filter-select--compact topbar-year-select meta-pill meta-pill--year">
+              <span class="section-caption">År</span>
+              <select id="active-year-select" aria-label="Välj odlingsår"></select>
+            </label>
+            </div>
+          </div>
+        </header>
+
+        <section class="page is-visible" data-page="idag">
+          <div class="layout-two-column">
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <p class="section-kicker">Dagligt arbete</p>
+                  <div class="section-head__title-row">
+                    <h3>Att göra</h3>
+                    <button id="today-help-button" class="help-button" type="button" aria-label="Hjälp om idag">?</button>
+                  </div>
+                </div>
+
+                <div class="segmented-control" id="task-status-filter">
+                  <button class="segment is-active" data-status="open">Ej utförda</button>
+                  <button class="segment" data-status="all">Alla</button>
+                </div>
+              </div>
+
+              <div class="today-toolbar chip-row chip-row--space">
+                <div id="today-legend" class="chip-row"></div>
+                <div id="task-field-filters"></div>
+              </div>
+              <div id="task-list" class="task-list"></div>
+            </section>
+
+            <aside class="surface surface--aside">
+              <div class="section-head">
+                <div>
+                  <p class="section-kicker">Läge</p>
+                  <h3>Snabböversikt</h3>
+                </div>
+              </div>
+
+              <div id="stats-grid" class="stats-grid"></div>
+
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" data-page="tidslinje">
+          <section class="surface">
+            <div class="section-head">
+              <div>
+                <p class="section-kicker">Jämförbar planering</p>
+                <div class="section-head__title-row">
+                  <h3>Odlingsplan</h3>
+                  <button id="timeline-help-button" class="help-button" type="button" aria-label="Hjälp om odlingsplanen">?</button>
+                </div>
+              </div>
+              <div class="toolbar-row">
+                <button id="open-planning-dialog" class="button-primary" type="button">Lägg till gröda</button>
+                <button id="open-seed-shopping-list" class="button-secondary" type="button">Inköpslista</button>
+                <button id="clear-cultivation-button" class="button-secondary button-secondary--danger" type="button">Töm odling</button>
+                <label class="button-secondary button-file">
+                  <input id="cultivation-import-file" type="file" accept=".xlsx,.xlsm" hidden />
+                  Importera grödor
+                </label>
+                <button id="cultivation-export-button" class="button-secondary" type="button">Exportera grödor</button>
+              </div>
+            </div>
+
+            <div class="segmented-control timeline-view-switcher" id="timeline-view-switcher">
+              <button class="segment" type="button" data-view="presow">Försådd</button>
+              <button class="segment is-active" type="button" data-view="crops">Grödor</button>
+              <button class="segment" type="button" data-view="utilization">Bäddar</button>
+            </div>
+
+            <div class="timeline-toolbar timeline-toolbar--top chip-row chip-row--space">
+              <div class="timeline-toolbar__group timeline-toolbar__group--summary">
+                <span id="timeline-range">-</span>
+                <div id="timeline-legend" class="chip-row"></div>
+              </div>
+              <div class="timeline-toolbar__group timeline-toolbar__group--filters">
+                <div id="timeline-field-filters"></div>
+              </div>
+            </div>
+
+            <div class="timeline-frame">
+              <div id="timeline-weeks" class="timeline-weeks"></div>
+              <div id="timeline-rows" class="timeline-rows"></div>
+            </div>
+          </section>
+        </section>
+
+      <section class="page" data-page="frodatabas">
+        <div class="seed-db-layout">
+          <section class="surface">
+              <div class="section-head">
+                <div>
+                  <p id="seed-db-kicker" class="section-kicker">Global databas</p>
+                  <div class="section-head__title-row">
+                    <h3 id="seed-db-title">Frödatabasen</h3>
+                    <button id="seed-help-button" class="help-button" type="button" aria-label="Hjälp om frödatabasen">?</button>
+                  </div>
+                </div>
+                <div class="toolbar-row">
+                  <label class="toolbar-search">
+                    <input id="seed-search-input" type="search" placeholder="Sök i den globala frödatabasen" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Gröda</th>
+                      <th>Familj</th>
+                      <th>Plantavstånd</th>
+                      <th>Försådd</th>
+                      <th>Direktsådd</th>
+                      <th>Utplantering</th>
+                      <th>Skörd</th>
+                      <th>Anteckningar</th>
+                    </tr>
+                  </thead>
+                  <tbody id="seed-table-body"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="page" data-page="egnafroer" hidden>
+          <section class="surface">
+            <div class="section-head">
+              <div>
+                <p class="section-kicker">Personlig databas</p>
+                <div class="section-head__title-row">
+                  <h3>Egna grödor</h3>
+                  <button id="seed-help-button-secondary" class="help-button" type="button" aria-label="Hjälp om egna grödor">?</button>
+                </div>
+              </div>
+              <div class="toolbar-row">
+                  <button id="open-personal-seed-dialog-legacy" class="button-primary" type="button">Lägg till gröda</button>
+                  <label class="button-secondary button-file">
+                    <input id="personal-seed-import-file-legacy" type="file" accept=".json,.csv,.xlsx,.xlsm" hidden />
+                    Importera egna grödor
+                  </label>
+                  <button id="personal-seed-export-button-legacy" class="button-secondary" type="button">Exportera egna grödor</button>
+                  <label class="toolbar-search">
+                    <input id="seed-search-input-secondary-legacy" type="search" placeholder="Sök i egna grödor" />
+                  </label>
+                </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Gröda</th>
+                    <th>Familj</th>
+                    <th>Plantavstånd</th>
+                    <th>Försådd</th>
+                    <th>Direktsådd</th>
+                    <th>Utplantering</th>
+                    <th>Skörd</th>
+                    <th>Anteckningar</th>
+                  </tr>
+                </thead>
+                <tbody id="seed-table-body-secondary-legacy"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" data-page="frolager">
+          <section class="surface">
+            <div class="section-head">
+              <div>
+                <p class="section-kicker">Personlig databas</p>
+                <h3>Mina fröer</h3>
+              </div>
+              <div class="toolbar-row">
+                <button id="open-personal-seed-dialog" class="button-primary" type="button">Lägg till frö</button>
+                <button id="open-seed-stock-dialog" class="button-secondary" type="button" hidden>Lägg till frö</button>
+                <label class="button-secondary button-file">
+                  <input id="personal-seed-import-file" type="file" accept=".json,.csv,.xlsx,.xlsm" hidden />
+                  Importera mina fröer
+                </label>
+                <button id="personal-seed-export-button" class="button-secondary" type="button">Exportera mina fröer</button>
+                <label class="toolbar-search">
+                  <input id="seed-stock-search-input" type="search" placeholder="Sök i mina fröer" />
+                </label>
+              </div>
+            </div>
+            <div class="segmented-control harvest-view-switcher" id="seed-stock-view-switcher">
+              <button class="segment is-active" type="button" data-view="all">Alla fröer</button>
+              <button class="segment" type="button" data-view="stocked">I lager</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table seed-stock-table">
+                <thead>
+                  <tr>
+                    <th><button class="table-sort-button" type="button" data-key="crop">Gröda</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="variety">Sort</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="family">Familj</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="method">Metod</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="quantity">Antal</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="year">Inköpsår</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="expirationYear">Bäst före</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="supplier">Leverantör</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="notes">Anteckningar</button></th>
+                  </tr>
+                </thead>
+                <tbody id="seed-stock-body"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" data-page="skord">
+          <section class="surface">
+            <div class="section-head">
+              <div>
+                <p class="section-kicker">Årssummering</p>
+                <div class="section-head__title-row">
+                  <h3>Skörd</h3>
+                  <button id="harvest-help-button" class="help-button" type="button" aria-label="Hjälp om skörd">?</button>
+                </div>
+              </div>
+              <div class="toolbar-row">
+                <button id="open-harvest-forecast-dialog" class="button-secondary" type="button">Prognos</button>
+                <button id="open-manual-harvest-dialog" class="button-primary" type="button">Lägg till skörd</button>
+              </div>
+            </div>
+
+            <div class="segmented-control harvest-view-switcher" id="harvest-view-switcher">
+              <button class="segment is-active" type="button" data-view="all">Alla grödor</button>
+              <button class="segment" type="button" data-view="harvested">Skördade grödor</button>
+            </div>
+
+            <div id="harvest-summary-cards" class="harvest-summary-grid"></div>
+
+            <div class="table-wrap">
+              <table id="harvest-summary-table" class="data-table">
+                <thead>
+                  <tr>
+                    <th><button class="table-sort-button" type="button" data-key="title">Gröda</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="kg">Skördat</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="area">Sådd yta</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="yieldPerM2">Skörd/m²</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="pricePerKg">Pris/kg</button></th>
+                    <th><button class="table-sort-button" type="button" data-key="expectedIncome">Inkomst</button></th>
+                  </tr>
+                </thead>
+                <tbody id="harvest-summary-body"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" data-page="skiften">
+          <div id="field-map-workspace" class="layout-two-column field-map-workspace">
+            <section class="surface">
+              <div class="section-head">
+                <div>
+                  <p class="section-kicker">Databas 2</p>
+                  <div class="section-head__title-row">
+                    <h3>Översikt</h3>
+                    <button id="fields-help-button" class="help-button" type="button" aria-label="Hjälp om odlingsytor">?</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="toolbar-row field-actions-row">
+                <button id="open-section-dialog" class="button-secondary" type="button">Lägg till skifte</button>
+                <button id="open-field-dialog" class="button-primary" type="button">Lägg till yta</button>
+              </div>
+
+              <div class="field-map-toolbar">
+                <label class="field-time-slider">
+                  <span id="field-time-label">Beläggning vecka -</span>
+                  <input id="field-time-slider" type="range" min="1" max="52" step="1" value="1" />
+                </label>
+                <button id="field-zoom-out" class="button-secondary" type="button">-</button>
+                <span id="field-zoom-label" class="zoom-label">100%</span>
+                <button id="field-zoom-in" class="button-secondary" type="button">+</button>
+                <button id="field-zoom-reset" class="button-secondary" type="button">Återställ</button>
+                <button id="field-zoom-fit" class="button-secondary" type="button">Till odlingen</button>
+                <button id="field-fullscreen-toggle" class="button-secondary" type="button" aria-pressed="false">Helskärm</button>
+              </div>
+
+              <div id="field-map" class="field-map">
+                <div id="field-map-canvas" class="field-map-canvas"></div>
+              </div>
+            </section>
+
+            <aside class="surface surface--aside">
+              <div class="section-head">
+                <div>
+                  <p class="section-kicker">Ytor</p>
+                  <h3>Bäddlista</h3>
+                </div>
+              </div>
+
+              <div id="field-list" class="field-list"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" data-page="installningar">
+          <div class="layout-two-column settings-layout">
+            <section class="surface settings-main">
+              <div class="section-head">
+                <div>
+                  <p class="section-kicker">Export</p>
+                  <h3>Din odlingsdata</h3>
+                </div>
+              </div>
+
+              <div class="settings-grid">
+                <article class="settings-card">
+                  <p class="section-kicker">Bäddar</p>
+                  <h4>Odlingsytor</h4>
+                  <p class="section-caption">Exportera bäddar, skiften, ytor och placeringar för backup eller vidare arbete.</p>
+                  <div class="toolbar-row">
+                    <button id="settings-export-beds-csv" class="button-secondary" type="button">Exportera CSV</button>
+                    <button id="settings-export-beds-xlsx" class="button-primary" type="button">Exportera Excel</button>
+                  </div>
+                </article>
+
+                <article class="settings-card">
+                  <p class="section-kicker">Odlingsplan</p>
+                  <h4>Odlingsomgångar och schema</h4>
+                  <p class="section-caption">Exportera hela odlingsplanen med grödor, bäddar, veckor och händelser.</p>
+                  <div class="toolbar-row">
+                    <button id="settings-export-planning-csv" class="button-secondary" type="button">Exportera CSV</button>
+                    <button id="settings-export-planning-xlsx" class="button-primary" type="button">Exportera Excel</button>
+                  </div>
+                </article>
+              </div>
+
+              <div class="section-head section-head--stacked settings-subsection-head">
+                <div>
+                  <p class="section-kicker">Lagring</p>
+                  <h3>Personlig data</h3>
+                </div>
+              </div>
+
+              <div class="settings-storage">
+                <p id="settings-data-folder" class="inline-note inline-note--rotation" data-state="idle">Ingen datamapp vald än.</p>
+                <p class="section-caption">Välj var din personliga data ska sparas så att den ligger kvar utanför appens filer.</p>
+                <div class="toolbar-row">
+                  <button id="settings-choose-data-folder" class="button-primary" type="button">Välj datamapp</button>
+                  <button id="settings-import-data" class="button-secondary" type="button">Importera data</button>
+                </div>
+              </div>
+
+              <div class="section-head section-head--stacked settings-subsection-head">
+                <div>
+                  <p class="section-kicker">Om</p>
+                  <h3>Om programmet</h3>
+                </div>
+              </div>
+
+              <article class="settings-card settings-card--about-program">
+                <p class="section-kicker">Version</p>
+                <h4>Odlingskalender</h4>
+                <p class="inline-note inline-note--rotation" data-state="idle">Version 0.0.1</p>
+              </article>
+            </section>
+
+            <div class="settings-aside">
+              <aside class="surface surface--aside">
+                <div class="section-head section-head--stacked">
+                  <div>
+                    <p class="section-kicker">Guide</p>
+                    <h3>Kom igång</h3>
+                  </div>
+                </div>
+
+                <div class="settings-storage">
+                  <p class="section-caption">Öppna en stegvis guide som visar var knappar, information och viktiga arbetsflöden finns i appen.</p>
+                  <div class="toolbar-row">
+                    <button id="settings-open-guide" class="button-primary" type="button">Visa guide</button>
+                  </div>
+                </div>
+              </aside>
+
+              <aside class="surface surface--aside">
+                <div class="section-head section-head--stacked">
+                  <div>
+                    <p class="section-kicker">Tema</p>
+                    <h3>Utseende</h3>
+                  </div>
+                </div>
+
+                <div class="settings-storage settings-storage--theme">
+                  <p class="section-caption">Välj om appen ska visas i ljust eller mörkt tema.</p>
+                  <div id="theme-switcher" class="segmented-control settings-theme-switcher" role="group" aria-label="Välj tema">
+                    <button id="theme-light-button" class="segment" type="button" data-theme="light">Ljust</button>
+                    <button id="theme-dark-button" class="segment" type="button" data-theme="dark">Mörkt</button>
+                  </div>
+                </div>
+              </aside>
+
+              <aside class="surface surface--aside">
+                <div class="section-head section-head--stacked">
+                  <div>
+                    <p class="section-kicker">Väder</p>
+                    <h3>Väderplats</h3>
+                  </div>
+                </div>
+
+                <div class="settings-storage settings-weather">
+                  <p id="settings-weather-current" class="inline-note inline-note--rotation" data-state="idle">Ingen väderplats vald än.</p>
+                  <p class="section-caption">Ställ in vilken ort väderwidgeten ska använda. Det här fungerar även när webbläsarens platsdelning inte hittar rätt.</p>
+                  <form id="weather-location-form" class="settings-weather-form">
+                    <label for="weather-location-query">Ort</label>
+                    <div class="settings-weather-form__row">
+                      <input id="weather-location-query" type="search" autocomplete="off" list="weather-location-suggestions" placeholder="t.ex. Lund" />
+                      <button class="button-primary" type="submit">Spara väderplats</button>
+                    </div>
+                    <datalist id="weather-location-suggestions"></datalist>
+                    <small id="weather-location-status" aria-live="polite"></small>
+                  </form>
+                </div>
+              </aside>
+
+              <aside class="surface surface--aside">
+                <div class="section-head section-head--stacked">
+                  <div>
+                    <p class="section-kicker">Datakälla</p>
+                    <h3>Externa datakällor</h3>
+                  </div>
+                </div>
+
+                <div class="settings-storage settings-storage--about">
+                  <p class="section-caption">Weather data © SMHI (CC BY 4.0)</p>
+                  <p class="section-caption">Modified and processed by Lilla björkbacka</p>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="crop-dialog" class="dialog">
+      <form id="crop-dialog-form" method="dialog" class="dialog-card dialog-card--wide planning-dialog-card planning-dialog-card--edit">
+        <aside class="planning-sidebar planning-sidebar--edit">
+          <button class="icon-button planning-close" type="button" data-dialog-close aria-label="Stäng">x</button>
+          <div class="planning-visual planning-visual--edit">
+            <div class="planning-visual__blob"></div>
+            <div class="planning-visual__crop"></div>
+          </div>
+          <div class="planning-summary">
+            <p class="section-kicker">Redigera gröda</p>
+            <h3 id="dialog-title">Grödkort</h3>
+            <div class="planning-facts">
+              <div class="planning-fact">
+                <span>Yta</span>
+                <strong id="dialog-preview-area">0.0 m²</strong>
+              </div>
+              <div class="planning-fact">
+                <span>Placering</span>
+                <strong id="dialog-preview-fields">Välj bädd</strong>
+              </div>
+              <div class="planning-fact">
+                <span>Start</span>
+                <strong id="dialog-preview-start">-</strong>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <section class="planning-main">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Redigera odlingsomgång</p>
+            <h3>Justera gröda</h3>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            Försådd start
+            <input id="dialog-presow-start" type="number" min="1" max="52" />
+          </label>
+          <label>
+            Försådd slut
+            <input id="dialog-presow-end" type="number" min="1" max="52" />
+          </label>
+          <label>
+            Direktsådd start
+            <input id="dialog-direct-start" type="number" min="1" max="52" />
+          </label>
+          <label>
+            Direktsådd slut
+            <input id="dialog-direct-end" type="number" min="1" max="52" />
+          </label>
+          <label>
+            Utplantering
+            <input id="dialog-transplant" type="number" min="1" max="52" />
+          </label>
+          <label>
+            Första skörd
+            <input id="dialog-harvest-start" type="number" min="1" max="52" />
+          </label>
+          <label>
+            Sista skörd
+            <input id="dialog-harvest-end" type="number" min="1" max="52" />
+          </label>
+          <label>
+            Yta (m²)
+            <input id="dialog-area" type="number" min="0.1" step="0.1" />
+          </label>
+          <label class="form-span-2">
+            Bäddar
+            <div id="dialog-fields" class="chip-row chip-row--space"></div>
+          </label>
+          <div id="dialog-capacity" class="inline-note form-span-2"></div>
+          <div class="form-span-2">
+            <p class="section-caption">Uppgifter för grödan</p>
+            <div id="dialog-task-list" class="dialog-task-list"></div>
+          </div>
+          <label class="form-span-2">
+            Notering
+            <textarea id="dialog-note" rows="3"></textarea>
+          </label>
+          <div class="form-actions form-span-2">
+            <button class="button-secondary button-secondary--danger" id="dialog-delete" type="button">Ta bort gröda</button>
+            <button class="button-secondary" type="button" data-dialog-close>Avbryt</button>
+            <button class="button-primary" id="dialog-save" value="default">Spara</button>
+          </div>
+        </div>
+        </section>
+      </form>
+    </dialog>
+
+    <dialog id="planning-dialog" class="dialog">
+      <form id="planning-form" method="dialog" class="dialog-card dialog-card--wide planning-dialog-card">
+        <aside class="planning-sidebar">
+          <button class="icon-button planning-close" type="button" data-dialog-close aria-label="Stäng">x</button>
+          <div class="planning-visual">
+            <div class="planning-visual__blob"></div>
+            <div class="planning-visual__crop"></div>
+          </div>
+            <div class="planning-summary">
+              <p class="section-kicker">Lägg till gröda</p>
+              <h3 id="planning-preview-title">Ny gröda</h3>
+              <div class="planning-summary-notes">
+                <div id="planning-schedule-warning" class="inline-note inline-note--warning planning-summary-note" hidden></div>
+                <div id="planning-capacity" class="inline-note planning-summary-note"></div>
+                <div id="planning-rotation-hint" class="inline-note inline-note--rotation planning-summary-note"></div>
+            </div>
+          </div>
+        </aside>
+
+        <section class="planning-main">
+          <div class="dialog-head dialog-head--compact">
+            <div>
+              <p class="section-kicker">Planering</p>
+              <h3>Lägg till gröda</h3>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <label class="form-span-2" id="planning-sow-method-wrap" hidden>
+              Såmetod
+              <div id="planning-sow-method" class="segmented-control"></div>
+            </label>
+            <label>
+              Gröda
+              <select id="planning-crop"></select>
+            </label>
+            <label>
+              Sort / anteckning
+              <input id="planning-variety" type="text" autocomplete="off" />
+            </label>
+            <label class="form-span-2" id="planning-seed-stock-wrap">
+              Frö från lager
+              <select id="planning-seed-stock"></select>
+            </label>
+            <input id="planning-seed-id" type="hidden" />
+            <div id="planning-schedule-grid" class="form-span-2 planning-schedule-grid">
+              <label id="planning-presow-wrap">
+                <span class="form-label-row">
+                  <span id="planning-presow-label">Försådd</span>
+                  <span id="planning-presow-recommendation" class="field-recommendation"></span>
+                </span>
+                <input id="planning-presow" type="number" min="1" max="52" />
+              </label>
+              <label id="planning-direct-wrap">
+                <span class="form-label-row">
+                  <span>Direktsådd</span>
+                  <span id="planning-direct-recommendation" class="field-recommendation"></span>
+                </span>
+                <input id="planning-direct" type="number" min="1" max="52" />
+              </label>
+              <label id="planning-transplant-wrap">
+                <span class="form-label-row">
+                  <span id="planning-transplant-label">Utplantering</span>
+                  <span id="planning-transplant-recommendation" class="field-recommendation"></span>
+                </span>
+                <input id="planning-transplant" type="number" min="1" max="52" />
+              </label>
+              <label id="planning-harvest-wrap">
+                <span class="form-label-row">
+                  <span id="planning-harvest-label">Skörd</span>
+                  <span id="planning-harvest-recommendation" class="field-recommendation"></span>
+                </span>
+                <input id="planning-harvest" type="number" min="1" max="52" />
+              </label>
+            </div>
+            <label class="form-span-2">
+              Bädd
+              <div id="planning-field-filters" class="chip-row chip-row--space"></div>
+            </label>
+            <div class="form-span-2 planning-sowing-inline">
+              <label class="planning-sowing-inline__area">
+                Yta (m²)
+                <input id="planning-area" type="number" min="0.1" step="0.01" />
+              </label>
+              <div class="planning-sowing-inline__control">
+                <button id="planning-sowing-adjust-button" class="button-secondary planning-sowing-adjust" type="button">Anpassa</button>
+              </div>
+              <div class="planning-sowing-inline__control">
+                <div id="planning-seed-count-card" class="planning-sowing-summary" aria-live="polite">
+                  <span class="planning-sowing-summary__label">Antal frö</span>
+                  <div class="planning-sowing-summary__row">
+                    <strong id="planning-seed-count">0</strong>
+                    <span id="planning-seed-count-note" class="planning-sowing-summary__meta">Välj gröda och bädd.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="form-span-2 planning-mini-timeline-panel">
+              <div class="planning-mini-timeline-panel__head">
+                <strong>Planöversikt</strong>
+                <span>Rekommenderade intervall i bakgrunden, valda veckor ovanpå.</span>
+              </div>
+              <div id="planning-mini-timeline" class="planning-mini-timeline"></div>
+            </div>
+            <div class="form-actions form-span-2">
+              <button class="button-secondary" type="button" data-dialog-close>Avbryt</button>
+              <button class="button-primary" type="submit">Spara i egen odling</button>
+            </div>
+          </div>
+        </section>
+      </form>
+    </dialog>
+
+    <dialog id="planning-sowing-dialog" class="dialog">
+      <form id="planning-sowing-form" method="dialog" class="dialog-card dialog-card--wide sowing-layout-dialog">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Såöversikt</p>
+            <h3>Anpassa såavstånd</h3>
+          </div>
+        </div>
+        <div class="sowing-layout-dialog__body">
+          <section class="sowing-layout-visual-card">
+            <div id="planning-sowing-preview" class="sowing-layout-preview"></div>
+          </section>
+        </div>
+        <div class="form-grid sowing-layout-form-grid">
+          <label>
+            <span class="form-label-row">
+              <span id="planning-sowing-row-spacing-label">Radavstånd (cm)</span>
+            </span>
+            <input id="planning-sowing-row-spacing" type="number" min="1" step="0.1" />
+          </label>
+          <label>
+            <span class="form-label-row">
+              <span id="planning-sowing-manual-rows-label">Antal rader</span>
+            </span>
+            <input id="planning-sowing-manual-rows" type="number" min="1" step="1" />
+          </label>
+          <label>
+            Plantavstånd (cm)
+            <input id="planning-sowing-plant-spacing" type="number" min="1" step="1" />
+          </label>
+          <label>
+            Såyta (m²)
+            <input id="planning-sowing-area" type="number" min="0.1" step="0.01" />
+          </label>
+        </div>
+        <div id="planning-sowing-warning" class="inline-note inline-note--warning" hidden></div>
+        <div class="form-actions">
+          <button class="button-secondary" type="button" data-dialog-close>Stäng</button>
+          <button class="button-primary" type="submit">Använd i plan</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="seed-shopping-dialog" class="dialog">
+      <form method="dialog" class="dialog-card dialog-card--wide seed-shopping-dialog">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Mina fröer</p>
+            <div class="section-head__title-row">
+              <h3>Inköpslista</h3>
+              <button id="seed-shopping-help-button" class="help-button" type="button" aria-label="Hjälp om inköpslistan">?</button>
+            </div>
+          </div>
+        </div>
+        <p id="seed-shopping-meta" class="section-caption">Fröbehov för valt år.</p>
+        <div class="table-wrap seed-shopping-table-wrap">
+          <table class="data-table seed-shopping-table">
+            <thead>
+              <tr>
+                <th>Gröda</th>
+                <th>Sort</th>
+                <th>Frö i lager</th>
+                <th>Behov</th>
+                <th>Att köpa</th>
+                <th>Köp</th>
+              </tr>
+            </thead>
+            <tbody id="seed-shopping-body"></tbody>
+          </table>
+        </div>
+        <div class="form-actions">
+          <button class="button-primary" type="button" data-dialog-close>Stäng</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="seed-purchase-dialog" class="dialog dialog--compact">
+      <form id="seed-purchase-form" method="dialog" class="dialog-card confirm-dialog-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Inköp</p>
+            <h3 id="seed-purchase-title">Köp frö</h3>
+          </div>
+        </div>
+        <p id="seed-purchase-message" class="section-caption">Har du köpt frö?</p>
+        <label>
+          Antal köpta frön
+          <input id="seed-purchase-quantity" type="number" min="1" step="1" required />
+        </label>
+        <div class="form-actions">
+          <button class="button-secondary" type="button" data-dialog-close>Avbryt</button>
+          <button class="button-primary" type="submit">OK</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="seed-shopping-help-dialog" class="dialog">
+      <form method="dialog" class="dialog-card confirm-dialog-card timeline-help-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Hjälp</p>
+            <h3>Inköpslista</h3>
+          </div>
+        </div>
+        <div class="timeline-help-grid">
+          <article class="timeline-help-item">
+            <strong>Frö i lager</strong>
+            <p class="section-caption">Visar hur många frön som just nu finns i Mina fröer. Planerade grödor drar inte från lagret förrän försådd eller direktsådd markeras som genomförd.</p>
+          </article>
+          <article class="timeline-help-item">
+            <strong>Behov</strong>
+            <p class="section-caption">Visar hur många frön som behövs för planerade grödor som ännu inte har såtts.</p>
+          </article>
+          <article class="timeline-help-item">
+            <strong>Att köpa</strong>
+            <p class="section-caption">Visar hur många frön som saknas utifrån lager och aktuellt behov. När du registrerar ett köp fylls lagret på i Mina fröer.</p>
+          </article>
+        </div>
+        <div class="form-actions">
+          <button class="button-primary" type="button" data-dialog-close>Stäng</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="seed-stock-dialog" class="dialog">
+      <form id="seed-stock-form" method="dialog" class="dialog-card confirm-dialog-card seed-stock-dialog-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Mina fröer</p>
+            <h3 id="seed-stock-dialog-title">Lägg till frö</h3>
+          </div>
+        </div>
+        <label>
+          Gröda
+          <select id="seed-stock-seed-id" required></select>
+        </label>
+        <div class="form-grid">
+          <label>
+            Sortnamn
+            <input id="seed-stock-variety" type="text" />
+          </label>
+          <label>
+            Antal
+            <input id="seed-stock-quantity" type="number" min="0" step="1" />
+          </label>
+          <label>
+            Inköpsår
+            <input id="seed-stock-year" type="number" min="1900" max="2200" />
+          </label>
+          <label>
+            Bäst före-år
+            <input id="seed-stock-expiration" type="number" min="1900" max="2200" />
+          </label>
+          <label>
+            Leverantör
+            <input id="seed-stock-supplier" type="text" />
+          </label>
+          <label class="form-span-2">
+            Anteckningar
+            <textarea id="seed-stock-notes" rows="3"></textarea>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button id="seed-stock-delete" class="button-secondary button-secondary--danger" type="button">Ta bort</button>
+          <button class="button-secondary" type="button" data-dialog-close>Avbryt</button>
+          <button class="button-primary" type="submit">Spara</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="seed-dialog" class="dialog">
+      <form id="seed-dialog-form" method="dialog" class="dialog-card dialog-card--wide planning-dialog-card planning-dialog-card--edit">
+        <aside class="planning-sidebar planning-sidebar--edit">
+          <button class="icon-button planning-close" type="button" data-dialog-close aria-label="Stäng">x</button>
+          <div class="planning-visual planning-visual--edit">
+            <div class="planning-visual__blob"></div>
+            <div class="planning-visual__crop"></div>
+          </div>
+          <div class="planning-summary">
+            <p class="section-kicker">Fröpost</p>
+            <h3 id="seed-dialog-title">Frödatabas</h3>
+            <div class="planning-facts">
+              <div class="planning-fact">
+                <span>Familj</span>
+                <strong id="seed-dialog-family">-</strong>
+              </div>
+              <div class="planning-fact">
+                <span>Metod</span>
+                <strong id="seed-dialog-field">-</strong>
+              </div>
+              <div class="planning-fact">
+                <span>Försådd</span>
+                <strong id="seed-dialog-presow">-</strong>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <section class="planning-main">
+          <div class="dialog-head dialog-head--compact">
+            <div>
+              <p class="section-kicker">Frödatabasen</p>
+              <h3 id="seed-dialog-heading">Redigera fröpost</h3>
+            </div>
+          </div>
+          <div id="seed-dialog-readonly-note" class="inline-note" hidden>Den här posten kommer från den globala frödatabasen och är skrivskyddad.</div>
+
+          <div class="form-grid">
+            <div id="seed-dialog-mode-wrap" class="form-span-2">
+              <span class="form-label">Lägg till som</span>
+              <div class="segmented-control">
+                <button class="segment is-active" type="button" data-seed-dialog-mode="list">Från listan</button>
+                <button class="segment" type="button" data-seed-dialog-mode="manual">Nytt frö</button>
+              </div>
+            </div>
+            <label id="seed-dialog-template-wrap" class="form-span-2">
+              Frö från listan
+              <select id="seed-dialog-template-id"></select>
+            </label>
+            <label>
+              Familj
+              <select id="seed-dialog-family-input">
+                <option value="">Välj familj</option>
+                <option value="Flockblommiga">Flockblommiga</option>
+                <option value="Gräs">Gräs</option>
+                <option value="Gröngödsling">Gröngödsling</option>
+                <option value="Gurkväxter">Gurkväxter</option>
+                <option value="Korgblommiga">Korgblommiga</option>
+                <option value="Korsblommiga">Korsblommiga</option>
+                <option value="Kålväxter">Kålväxter</option>
+                <option value="Lökväxter">Lökväxter</option>
+                <option value="Mållväxter">Mållväxter</option>
+                <option value="Potatisväxter">Potatisväxter</option>
+                <option value="Ärtväxter">Ärtväxter</option>
+                <option value="Örtväxter">Örtväxter</option>
+              </select>
+            </label>
+            <label>
+              Latinska familjer
+              <input id="seed-dialog-latin-family" type="text" />
+            </label>
+            <label>
+              Gröda
+              <input id="seed-dialog-crop" type="text" />
+            </label>
+            <label>
+              Sort
+              <input id="seed-dialog-variety" type="text" />
+            </label>
+            <label>
+              Metod
+              <select id="seed-dialog-method">
+                <option value="">Välj metod</option>
+                <option value="Försådd">Försådd</option>
+                <option value="Direktsådd">Direktsådd</option>
+                <option value="Försådd+Direktsådd">Försådd+Direktsådd</option>
+              </select>
+            </label>
+            <label>
+              Plantavstånd
+              <input id="seed-dialog-spacing" type="text" />
+            </label>
+            <label>
+              Radavstånd
+              <input id="seed-dialog-row-spacing" type="text" />
+            </label>
+            <label>
+              Första försådd
+              <input id="seed-dialog-forsadd-start" type="number" min="1" max="52" />
+            </label>
+            <label>
+              Sista försådd
+              <input id="seed-dialog-forsadd-end" type="number" min="1" max="52" />
+            </label>
+            <label>
+              Första utplantering
+              <input id="seed-dialog-transplant-start" type="number" min="1" max="52" />
+            </label>
+            <label>
+              Sista utplantering
+              <input id="seed-dialog-transplant-end" type="number" min="1" max="52" />
+            </label>
+            <label>
+              Första direktsådd
+              <input id="seed-dialog-direct-start" type="number" min="1" max="52" />
+            </label>
+            <label>
+              Sista direktsådd
+              <input id="seed-dialog-direct-end" type="number" min="1" max="52" />
+            </label>
+            <label>
+              Kulturtid
+              <input id="seed-dialog-culture-time" type="text" />
+            </label>
+            <label>
+              Första skörd
+              <input id="seed-dialog-harvest-start" type="number" min="1" max="52" />
+            </label>
+            <label>
+              Sista skörd
+              <input id="seed-dialog-harvest-end" type="number" min="1" max="52" />
+            </label>
+            <label>
+              Frö/m²
+              <input id="seed-dialog-seed-per-m2" type="text" />
+            </label>
+            <label>
+              Antal
+              <input id="seed-dialog-quantity" type="number" min="0" step="1" />
+            </label>
+            <label>
+              Inköpsår
+              <input id="seed-dialog-year" type="number" min="1900" max="2200" />
+            </label>
+            <label>
+              Bäst före-år
+              <input id="seed-dialog-expiration" type="number" min="1900" max="2200" />
+            </label>
+            <label>
+              Leverantör
+              <input id="seed-dialog-supplier" type="text" />
+            </label>
+            <label class="form-span-2">
+              Anteckningar
+              <textarea id="seed-dialog-notes" rows="3"></textarea>
+            </label>
+            <div class="form-actions form-span-2">
+              <button class="button-secondary button-secondary--danger" type="button" id="seed-dialog-delete">Ta bort</button>
+              <button class="button-secondary" type="button" data-dialog-close>Avbryt</button>
+              <button class="button-primary" id="seed-dialog-save" value="default">Spara</button>
+            </div>
+          </div>
+        </section>
+      </form>
+    </dialog>
+
+    <dialog id="confirm-dialog" class="dialog dialog--compact">
+      <form id="confirm-dialog-form" method="dialog" class="dialog-card confirm-dialog-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Bekräfta</p>
+            <h3 id="confirm-dialog-title">Töm odling</h3>
+          </div>
+        </div>
+        <p id="confirm-dialog-message" class="section-caption">Är du säker?</p>
+        <div class="form-actions">
+          <button class="button-secondary" type="button" id="confirm-dialog-cancel">Avbryt</button>
+          <button class="button-primary button-primary--danger" type="submit" id="confirm-dialog-confirm">Bekräfta</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="clear-cultivation-dialog" class="dialog dialog--compact">
+      <form method="dialog" class="dialog-card confirm-dialog-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Töm odling</p>
+            <h3>Frö i lager</h3>
+          </div>
+        </div>
+        <p class="section-caption">Vill du lägga tillbaka fröna till mina fröer eller slänga dem?</p>
+        <div class="form-actions">
+          <button class="button-secondary" type="button" id="clear-cultivation-cancel">Avbryt</button>
+          <button class="button-secondary button-secondary--danger" type="button" id="clear-cultivation-discard">Släng</button>
+          <button class="button-primary" type="button" id="clear-cultivation-restore">Lägg tillbaka</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="app-notice" class="app-notice" role="status" aria-live="polite" hidden></div>
+
+    <dialog id="harvest-dialog" class="dialog dialog--compact">
+      <form id="harvest-dialog-form" method="dialog" class="dialog-card confirm-dialog-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Skörd</p>
+            <h3 id="harvest-dialog-title">Registrera skörd</h3>
+          </div>
+        </div>
+        <p id="harvest-dialog-message" class="section-caption">Vecka -</p>
+        <label>
+          Skördad vikt (kg)
+          <input id="harvest-dialog-kilograms" type="number" min="0" step="0.1" required />
+        </label>
+        <label class="check-row">
+          <input id="harvest-dialog-more" type="checkbox" checked />
+          <span>Det finns mer att skörda av denna gröda</span>
+        </label>
+        <div class="form-actions">
+          <button class="button-secondary button-secondary--danger" type="button" id="harvest-dialog-delete" hidden>Radera</button>
+          <button class="button-secondary" type="button" id="harvest-dialog-cancel">Avbryt</button>
+          <button class="button-primary" type="submit">Spara skörd</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="harvest-detail-dialog" class="dialog dialog--compact">
+      <form method="dialog" class="dialog-card confirm-dialog-card harvest-detail-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Skörd</p>
+            <h3 id="harvest-detail-title">Gröda</h3>
+          </div>
+        </div>
+        <p id="harvest-detail-meta" class="section-caption">Veckofördelning</p>
+        <div id="harvest-detail-chart" class="harvest-chart"></div>
+        <p id="harvest-detail-empty" class="section-caption harvest-empty" hidden>Ingen registrerad skörd att visa.</p>
+        <div id="harvest-detail-list" class="harvest-detail-list"></div>
+        <div class="form-actions">
+          <button class="button-secondary button-secondary--danger" type="button" id="harvest-detail-delete">Radera</button>
+          <button class="button-secondary" type="button" id="harvest-detail-add">Lägg till</button>
+          <button class="button-primary" type="button" data-dialog-close>Stäng</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="harvest-forecast-dialog" class="dialog">
+      <form method="dialog" class="dialog-card dialog-card--wide confirm-dialog-card harvest-forecast-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Skörd</p>
+            <h3>Prognos</h3>
+          </div>
+        </div>
+        <div id="harvest-forecast-total" class="harvest-forecast-total">
+          <span>Förväntad inkomst</span>
+          <strong>0,00 kr</strong>
+        </div>
+        <p class="section-caption harvest-forecast-caption">Prognosen bygger på årets grödor i tidslinjen, tidigare års skörd per m² och årets pris/kg. Ändringar här sparas inte.</p>
+        <div class="table-wrap harvest-forecast-table-wrap">
+          <table class="data-table harvest-forecast-table">
+            <colgroup>
+              <col class="harvest-forecast-table__col--crop" />
+              <col class="harvest-forecast-table__col--area" />
+              <col class="harvest-forecast-table__col--yield" />
+              <col class="harvest-forecast-table__col--price" />
+              <col class="harvest-forecast-table__col--income" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Gröda</th>
+                <th>Planterat</th>
+                <th>Tidigare skörd/m²</th>
+                <th>Pris/kg</th>
+                <th>Förväntad inkomst</th>
+              </tr>
+            </thead>
+            <tbody id="harvest-forecast-body"></tbody>
+          </table>
+        </div>
+        <div class="form-actions">
+          <button class="button-primary" type="button" data-dialog-close>Stäng</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="manual-harvest-dialog" class="dialog dialog--compact">
+      <form id="manual-harvest-form" method="dialog" class="dialog-card confirm-dialog-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Skörd</p>
+            <h3 id="manual-harvest-title">Lägg till skörd</h3>
+          </div>
+        </div>
+        <p id="manual-harvest-message" class="section-caption">Registrera skörd för vald gröda.</p>
+        <label>
+          Gröda
+          <select id="manual-harvest-seed" required></select>
+        </label>
+        <label>
+          Skördad vikt (kg)
+          <input id="manual-harvest-kilograms" type="number" min="0" step="0.1" required />
+        </label>
+        <label>
+          Vecka
+          <select id="manual-harvest-week" required></select>
+        </label>
+        <div class="form-actions">
+          <button class="button-secondary button-secondary--danger" type="button" id="manual-harvest-delete" hidden>Radera</button>
+          <button class="button-secondary" type="button" id="manual-harvest-cancel">Avbryt</button>
+          <button class="button-primary" type="submit">Spara skörd</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="section-dialog" class="dialog dialog--compact">
+      <form id="section-dialog-form" method="dialog" class="dialog-card confirm-dialog-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Skiften</p>
+            <h3>Nytt skifte</h3>
+          </div>
+        </div>
+        <label>
+          Namn
+          <input id="section-name" type="text" required />
+        </label>
+        <label>
+          Beskrivning
+          <input id="section-description" type="text" />
+        </label>
+        <label for="section-family" class="field-label">Växtfamilj</label>
+        <div class="combo-field">
+          <input id="section-family" type="text" placeholder="Välj eller skriv växtfamilj" autocomplete="off" />
+          <div id="section-family-options" class="combo-field__menu" hidden></div>
+        </div>
+        <label class="check-row">
+          <input id="section-rotation-enabled" type="checkbox" checked />
+          <span>Ingår i växtföljd</span>
+        </label>
+        <label>
+          Skiftesföljd
+          <input id="section-rotation-order" type="number" min="1" step="1" placeholder="1" />
+        </label>
+        <div class="form-actions">
+          <button class="button-secondary" type="button" id="section-dialog-cancel">Avbryt</button>
+          <button class="button-primary" type="submit">Spara skifte</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="field-dialog" class="dialog dialog--compact">
+      <form id="field-dialog-form" method="dialog" class="dialog-card confirm-dialog-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Ytor</p>
+            <h3>Ny odlingsyta</h3>
+          </div>
+        </div>
+        <label>
+          Namn
+          <input id="field-name" type="text" required />
+        </label>
+        <label>
+          Typ
+          <select id="field-type">
+            <option value="bed">Bädd</option>
+            <option value="greenhouse">Växthus</option>
+            <option value="path">Gång</option>
+            <option value="tree">Träd</option>
+            <option value="house">Hus</option>
+            <option value="fence">Staket</option>
+            <option value="wall">Mur</option>
+            <option value="hedge">Häck</option>
+          </select>
+        </label>
+        <label>
+          Bredd (m) X
+          <input id="field-width" type="number" min="0.01" step="0.01" required />
+        </label>
+        <label>
+          Längd (m) Y
+          <input id="field-length" type="number" min="0.01" step="0.01" required />
+        </label>
+        <label id="field-count-wrap">
+          Antal bäddar
+          <input id="field-count" type="number" min="1" step="1" value="1" />
+        </label>
+        <div>
+          <span class="section-caption">Välj skifte</span>
+          <div id="field-section-chips" class="chip-row chip-row--space"></div>
+        </div>
+        <div class="form-actions">
+          <button class="button-secondary" type="button" id="field-dialog-cancel">Avbryt</button>
+          <button class="button-primary" type="submit">Spara yta</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="field-info-dialog" class="dialog dialog--compact">
+      <form id="field-info-form" method="dialog" class="dialog-card confirm-dialog-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Bäddinfo</p>
+            <h3 id="field-info-title">Bädd</h3>
+          </div>
+        </div>
+        <label>
+          Namn
+          <input id="field-info-name" type="text" />
+        </label>
+        <label>
+          Typ
+          <select id="field-info-type">
+            <option value="bed">Bädd</option>
+            <option value="greenhouse">Växthus</option>
+            <option value="path">Gång</option>
+            <option value="tree">Träd</option>
+            <option value="house">Hus</option>
+            <option value="fence">Staket</option>
+            <option value="wall">Mur</option>
+            <option value="hedge">Häck</option>
+          </select>
+        </label>
+        <label>
+          Bredd (m) X
+          <input id="field-info-width" type="number" min="0.01" step="0.01" />
+        </label>
+        <label>
+          Längd (m) Y
+          <input id="field-info-length" type="number" min="0.01" step="0.01" />
+        </label>
+        <div class="field-info-meta">
+          <div id="field-info-section" class="section-caption"></div>
+          <div id="field-info-status" class="section-caption"></div>
+        </div>
+        <label>
+          Rotation
+          <div class="field-rotation-controls">
+            <button class="button-secondary" id="field-info-rotate-left" type="button">Rotera -90°</button>
+            <button class="button-secondary" id="field-info-rotate-right" type="button">Rotera +90°</button>
+          </div>
+        </label>
+        <div class="form-actions">
+          <button class="button-secondary button-secondary--danger" id="field-info-delete" type="button">Ta bort</button>
+          <button class="button-secondary" type="button" data-dialog-close>Avbryt</button>
+          <button class="button-primary" type="submit">Spara</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="timeline-help-dialog" class="dialog">
+      <form method="dialog" class="dialog-card confirm-dialog-card timeline-help-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Hjälp</p>
+            <h3>Odlingsplan</h3>
+          </div>
+        </div>
+        <div class="timeline-help-grid">
+          <article class="timeline-help-item">
+            <div class="timeline-help-visual timeline-help-visual--week">
+              <span class="timeline-help-week-line"></span>
+            </div>
+            <strong>Veckolinjen</strong>
+            <p class="section-caption">Den röda markören visar dagens vecka i tidslinjen.</p>
+          </article>
+          <article class="timeline-help-item">
+            <div class="timeline-help-visual timeline-help-visual--occupancy">
+              <span class="timeline-help-bar-wrap"><span class="timeline-help-bar" data-level="1"></span><small>0-25%</small></span>
+              <span class="timeline-help-bar-wrap"><span class="timeline-help-bar" data-level="2"></span><small>26-50%</small></span>
+              <span class="timeline-help-bar-wrap"><span class="timeline-help-bar" data-level="3"></span><small>51-75%</small></span>
+              <span class="timeline-help-bar-wrap"><span class="timeline-help-bar" data-level="4"></span><small>76-100%</small></span>
+              <span class="timeline-help-bar-wrap"><span class="timeline-help-bar is-overfilled" data-level="5"></span><small>100%+</small></span>
+            </div>
+            <strong>Beläggningsdiagram</strong>
+            <p class="section-caption">Staplarna visar hur mycket av bädden som används den veckan. 0-25% är låg beläggning, 26-50% och 51-75% är ökande användning, 76-100% betyder att bädden nästan är full och 100%+ blir rött för överbeläggning.</p>
+          </article>
+          <article class="timeline-help-item">
+            <div class="timeline-help-visual timeline-help-visual--frost">
+              <span class="timeline-help-frost-zone"></span>
+              <span class="timeline-help-frost-band"></span>
+            </div>
+            <strong>Frostperiod</strong>
+            <p class="section-caption">Heldragen blå yta visar veckor med hög historisk frostrisk. Det streckade blå bandet visar 50 % frostzon, alltså intervallet där den centrala halvan av de senaste 10 årens sista vårfrost eller första höstfrost ligger.</p>
+          </article>
+        </div>
+        <div class="form-actions">
+          <button class="button-primary" type="button" data-dialog-close>Stäng</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="today-help-dialog" class="dialog">
+      <form method="dialog" class="dialog-card confirm-dialog-card timeline-help-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Hjälp</p>
+            <h3>Idag</h3>
+          </div>
+        </div>
+        <div class="timeline-help-grid">
+          <article class="timeline-help-item">
+            <strong>Uppgiftslistan</strong>
+            <p class="section-caption">Här ser du det som är närmast i odlingen just nu. Listan visar främst öppna uppgifter, men du kan växla till att visa alla.</p>
+          </article>
+          <article class="timeline-help-item">
+            <strong>Filtrering</strong>
+            <p class="section-caption">Du kan filtrera på status och bädd för att fokusera på ett mindre område eller ett visst arbetsläge.</p>
+          </article>
+          <article class="timeline-help-item">
+            <strong>Snabböversikt</strong>
+            <p class="section-caption">Panelen till höger sammanfattar läget i odlingen så att du snabbt ser vad som är på gång.</p>
+          </article>
+        </div>
+        <div class="form-actions">
+          <button class="button-primary" type="button" data-dialog-close>Stäng</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="seed-help-dialog" class="dialog">
+      <form method="dialog" class="dialog-card confirm-dialog-card timeline-help-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Hjälp</p>
+            <h3>Frödatabasen</h3>
+          </div>
+        </div>
+        <div class="timeline-help-grid">
+          <article class="timeline-help-item">
+            <strong>Grödornas grunddata</strong>
+            <p class="section-caption">Här sparar du odlingsdata för varje gröda, till exempel familj, plantavstånd och rekommenderade veckor för sådd, utplantering och skörd.</p>
+          </article>
+          <article class="timeline-help-item">
+            <strong>Sök och redigera</strong>
+            <p class="section-caption">Använd sökningen för att hitta en gröda snabbt. Klicka på en rad för att öppna och ändra uppgifterna.</p>
+          </article>
+          <article class="timeline-help-item">
+            <strong>Import och export</strong>
+            <p class="section-caption">Du kan importera och exportera frödatabasen för att flytta eller säkerhetskopiera innehållet.</p>
+          </article>
+        </div>
+        <div class="form-actions">
+          <button class="button-primary" type="button" data-dialog-close>Stäng</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="harvest-help-dialog" class="dialog">
+      <form method="dialog" class="dialog-card confirm-dialog-card timeline-help-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Hjälp</p>
+            <h3>Skörd</h3>
+          </div>
+        </div>
+        <div class="timeline-help-grid">
+          <article class="timeline-help-item">
+            <strong>Skördetabellen</strong>
+            <p class="section-caption">Tabellen visar skörd per gröda för valt år, inklusive yta, skörd per m², pris per kilo och inkomst.</p>
+          </article>
+          <article class="timeline-help-item">
+            <strong>Registrera skörd</strong>
+            <p class="section-caption">Du kan lägga till skörd manuellt eller klicka på en gröda för att öppna detaljvyn med veckofördelning och redigering.</p>
+          </article>
+          <article class="timeline-help-item">
+            <strong>Prognos</strong>
+            <p class="section-caption">Prognosen räknar på årets planterade yta, tidigare års skörd per m² och årets pris per kilo. Ändringar där sparas inte.</p>
+          </article>
+        </div>
+        <div class="form-actions">
+          <button class="button-primary" type="button" data-dialog-close>Stäng</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="fields-help-dialog" class="dialog">
+      <form method="dialog" class="dialog-card confirm-dialog-card timeline-help-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Hjälp</p>
+            <h3>Odlingsytor</h3>
+          </div>
+        </div>
+        <div class="timeline-help-grid">
+          <article class="timeline-help-item">
+            <strong>Kartan</strong>
+            <p class="section-caption">Kartan visar hela odlingen. Du kan panorera, zooma och flytta ytor för att bygga upp din layout.</p>
+          </article>
+          <article class="timeline-help-item">
+            <strong>Skiften och bäddar</strong>
+            <p class="section-caption">Skiften håller ihop växtföljd och struktur. När du lägger till flera bäddar samtidigt placeras de i följd med mellanrum.</p>
+          </article>
+          <article class="timeline-help-item">
+            <strong>Till odlingen</strong>
+            <p class="section-caption">Knappen zoomar och flyttar vyn så att hela den aktuella odlingen får plats i kartfönstret.</p>
+          </article>
+        </div>
+        <div class="form-actions">
+          <button class="button-primary" type="button" data-dialog-close>Stäng</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="data-setup-dialog" class="dialog dialog--compact">
+      <form method="dialog" class="dialog-card confirm-dialog-card">
+        <div class="dialog-head">
+          <div>
+            <p class="section-kicker">Första start</p>
+            <h3>Välj datamapp</h3>
+          </div>
+        </div>
+        <p class="section-caption">
+          Välj en mapp där din egen data sparas, till exempel i Mina dokument. Då ligger den kvar även om appen uppdateras.
+        </p>
+        <p id="data-setup-folder-name" class="inline-note inline-note--rotation" data-state="idle">Ingen datamapp vald än.</p>
+        <p id="data-setup-status" class="section-caption"></p>
+        <div class="form-actions">
+          <button class="button-secondary" type="button" id="data-setup-import-button">Importera data</button>
+          <button class="button-secondary" type="button" id="data-setup-skip-button">Senare</button>
+          <button class="button-primary" type="button" id="data-setup-choose-folder">Välj mapp</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="app-guide-overlay" class="app-guide-overlay" hidden>
+      <div class="app-guide-backdrop"></div>
+      <div id="app-guide-highlight" class="app-guide-highlight"></div>
+      <aside id="app-guide-popover" class="app-guide-popover" role="dialog" aria-modal="true" aria-labelledby="settings-guide-title">
+        <div class="dialog-head dialog-head--compact">
+          <div>
+            <p class="section-kicker">Guide</p>
+            <h3 id="settings-guide-title">Kom igång</h3>
+          </div>
+          <span id="settings-guide-step" class="inline-note inline-note--rotation" data-state="idle">Steg 1 av 5</span>
+        </div>
+        <p id="settings-guide-intro" class="section-caption">Beskrivning</p>
+        <p id="settings-guide-hint" class="section-caption" hidden></p>
+        <div id="settings-guide-points" class="app-guide-points"></div>
+        <div class="form-actions">
+          <button id="settings-guide-close" class="button-secondary" type="button">Stäng</button>
+          <button id="settings-guide-prev" class="button-secondary" type="button">Föregående</button>
+          <button id="settings-guide-next" class="button-primary" type="button">Nästa</button>
+        </div>
+      </aside>
+    </div>
+
+    <input id="data-import-file" type="file" accept=".json" hidden />
+
+    <script src="./seed_catalog_full.js"></script>
+    <script src="./vendor/xlsx.full.min.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
+
+
