@@ -17,6 +17,7 @@ const fieldTypes = [
 ] as const;
 
 const fieldTypeLabels = new Map(fieldTypes);
+const sectionPalette = ["#6eb45d", "#dfb14f", "#d77264", "#67aec1", "#9a7ac7", "#d48756"] as const;
 
 type CropSummary = {
   id: string;
@@ -112,6 +113,12 @@ function summarizeFieldCrops(cropTitles: string[]) {
   return `${cropTitles[0]} +${cropTitles.length - 1}`;
 }
 
+function getSectionColor(sectionId: string | null, sections: SectionRow[]) {
+  if (!sectionId) return "#dfb14f";
+  const sectionIndex = sections.findIndex((section) => section.id === sectionId);
+  return sectionPalette[((sectionIndex >= 0 ? sectionIndex : 0) % sectionPalette.length)];
+}
+
 function FieldFormFields({
   field,
   sections,
@@ -169,10 +176,6 @@ function FieldFormFields({
           <input className="rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-base outline-none focus:border-[var(--primary)]" defaultValue="1" inputMode="numeric" min="1" name="fieldCount" type="number" />
         </label>
       ) : null}
-      <label className="grid gap-1 text-sm font-semibold">
-        Beskrivning
-        <input className="rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-base outline-none focus:border-[var(--primary)]" defaultValue={field?.description} name="description" placeholder="Kålväxter, vårbädd eller växthus" />
-      </label>
     </>
   );
 }
@@ -186,10 +189,6 @@ function SectionFormFields({ section, familyOptions }: { section?: SectionRow; f
         <input className="rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-base outline-none focus:border-[var(--primary)]" defaultValue={section?.name} name="name" placeholder="Skifte 1" required />
       </label>
       <label className="grid gap-1 text-sm font-semibold">
-        Beskrivning
-        <input className="rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-base outline-none focus:border-[var(--primary)]" defaultValue={section?.description} name="description" placeholder="Norra odlingen" />
-      </label>
-      <label className="grid gap-1 text-sm font-semibold">
         Växtfamilj
         <select className="rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-base outline-none focus:border-[var(--primary)]" defaultValue={section?.family ?? ""} name="family">
           <option value="">Välj växtfamilj</option>
@@ -198,7 +197,7 @@ function SectionFormFields({ section, familyOptions }: { section?: SectionRow; f
           ))}
         </select>
       </label>
-      <label className="flex items-center gap-2 text-sm font-semibold">
+      <label className="portal-checkbox-row text-sm font-semibold">
         <input name="rotationEnabled" type="checkbox" defaultChecked={section?.rotationEnabled ?? true} />
         Ingår i växtföljd
       </label>
@@ -242,8 +241,10 @@ export function FieldsWorkspace({
   const sectionDialogRef = useRef<HTMLDialogElement>(null);
   const editFieldDialogRef = useRef<HTMLDialogElement>(null);
   const editSectionDialogRef = useRef<HTMLDialogElement>(null);
+  const helpDialogRef = useRef<HTMLDialogElement>(null);
   const dragRef = useRef<{
     fieldId: string;
+    moved: boolean;
     pointerId: number;
     startClientX: number;
     startClientY: number;
@@ -264,6 +265,23 @@ export function FieldsWorkspace({
     }
     return map;
   }, [crops]);
+  const totalAreaM2 = useMemo(
+    () => fields.reduce((sum, field) => sum + (field.areaM2 ?? 0), 0),
+    [fields],
+  );
+  const fieldsWithoutSection = useMemo(
+    () => fields.filter((field) => !field.sectionId),
+    [fields],
+  );
+  const selectedFieldCropSummary = selectedField
+    ? summarizeFieldCrops(cropTitlesByFieldId.get(selectedField.id) ?? [])
+    : null;
+  const selectedFieldSectionName = selectedField?.sectionId
+    ? sections.find((section) => section.id === selectedField.sectionId)?.name ?? "Utan skifte"
+    : "Utan skifte";
+  const selectedFieldStatus = selectedFieldCropSummary
+    ? `Planerad för ${selectedFieldCropSummary}`
+    : "Ingen gröda planerad ännu.";
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -278,6 +296,22 @@ export function FieldsWorkspace({
       fieldDialogRef.current?.showModal();
     }
   }, [openNewFieldOnLoad]);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const frame = requestAnimationFrame(() => {
+      fitGardenToView();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isFullscreen]);
+
+  useEffect(() => {
+    if (fields.length === 0) return;
+    const frame = requestAnimationFrame(() => {
+      fitGardenToView();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [fields.length]);
 
   function persistPlacement(fieldId: string, placement: Placement) {
     const formData = new FormData();
@@ -316,15 +350,33 @@ export function FieldsWorkspace({
         const placement = placements[field.id] ?? getInitialPlacement(field, index);
         const size = getFieldSize(field);
         return {
-          maxX: Math.max(currentBounds.maxX, placement.x + size.width + 80),
-          maxY: Math.max(currentBounds.maxY, placement.y + size.height + 80),
+          maxX: Math.max(currentBounds.maxX, placement.x + size.width),
+          maxY: Math.max(currentBounds.maxY, placement.y + size.height),
+          minX: Math.min(currentBounds.minX, placement.x),
+          minY: Math.min(currentBounds.minY, placement.y),
         };
       },
-      { maxX: 1, maxY: 1 },
+      { maxX: 1, maxY: 1, minX: Number.POSITIVE_INFINITY, minY: Number.POSITIVE_INFINITY },
     );
-    const nextZoom = Math.min(mapRef.current.clientWidth / bounds.maxX, mapRef.current.clientHeight / bounds.maxY, 1.75);
+    const padding = 80;
+    const spanX = Math.max(bounds.maxX - bounds.minX, 1);
+    const spanY = Math.max(bounds.maxY - bounds.minY, 1);
+    const nextZoom = Math.min(
+      (mapRef.current.clientWidth - padding) / spanX,
+      (mapRef.current.clientHeight - padding) / spanY,
+      1.75,
+    );
     updateZoom(nextZoom);
-    mapRef.current.scrollTo({ left: 0, top: 0 });
+    requestAnimationFrame(() => {
+      const scaledMinX = bounds.minX * nextZoom;
+      const scaledMinY = bounds.minY * nextZoom;
+      const scaledSpanX = spanX * nextZoom;
+      const scaledSpanY = spanY * nextZoom;
+      mapRef.current?.scrollTo({
+        left: Math.max(0, scaledMinX - (mapRef.current.clientWidth - scaledSpanX) / 2),
+        top: Math.max(0, scaledMinY - (mapRef.current.clientHeight - scaledSpanY) / 2),
+      });
+    });
   }
 
   async function toggleFullscreen() {
@@ -342,6 +394,7 @@ export function FieldsWorkspace({
     const placement = placements[field.id] ?? getInitialPlacement(field, 0);
     dragRef.current = {
       fieldId: field.id,
+      moved: false,
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
@@ -354,6 +407,10 @@ export function FieldsWorkspace({
   function handlePointerMove(event: PointerEvent<HTMLButtonElement>) {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
+
+    if (Math.abs(event.clientX - drag.startClientX) > 3 || Math.abs(event.clientY - drag.startClientY) > 3) {
+      drag.moved = true;
+    }
 
     const nextX = Math.max(0, drag.startX + (event.clientX - drag.startClientX) / zoom);
     const nextY = Math.max(0, drag.startY + (event.clientY - drag.startClientY) / zoom);
@@ -371,6 +428,8 @@ export function FieldsWorkspace({
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
 
+    const moved = drag.moved;
+
     const placement = {
       ...(placements[drag.fieldId] ?? { rotationDeg: 0, x: drag.startX, y: drag.startY }),
       x: Math.max(0, drag.startX + (event.clientX - drag.startClientX) / zoom),
@@ -378,7 +437,14 @@ export function FieldsWorkspace({
     };
     dragRef.current = null;
     setPlacements((current) => ({ ...current, [drag.fieldId]: placement }));
-    persistPlacement(drag.fieldId, placement);
+    if (moved) {
+      persistPlacement(drag.fieldId, placement);
+    } else {
+      const field = fields.find((item) => item.id === drag.fieldId);
+      if (field) {
+        openFieldEditor(field);
+      }
+    }
   }
 
   function confirmDelete(event: FormEvent<HTMLFormElement>, label: string) {
@@ -398,10 +464,22 @@ export function FieldsWorkspace({
   }
 
   return (
-    <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <section className="min-w-0 rounded-[22px] border border-[var(--border)] bg-white/90 p-5 shadow-[0_18px_40px_rgba(22,58,54,0.06)]" ref={mapWorkspaceRef}>
-        <p className="section-kicker">Odlingsytor</p>
-        <h2 className="mt-1 text-2xl font-light tracking-[-0.04em] text-[var(--foreground)]">Översikt</h2>
+    <section className={`portal-fields-layout grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px] ${isFullscreen ? "is-fullscreen" : ""}`} ref={mapWorkspaceRef}>
+      <section className="portal-fields-surface min-w-0 rounded-[22px] border border-[var(--border)] bg-white/90 p-5 shadow-[0_18px_40px_rgba(22,58,54,0.06)]">
+        <div className="portal-fields-head">
+          <div>
+            <p className="section-kicker">Databas 2</p>
+            <div className="portal-fields-title-row">
+              <h2 className="mt-1 text-2xl font-light tracking-[-0.04em] text-[var(--foreground)]">Översikt</h2>
+              <button aria-label="Hjälp om odlingsytor" className="portal-help-button" onClick={() => helpDialogRef.current?.showModal()} type="button">?</button>
+            </div>
+          </div>
+          <div className="portal-fields-head__stats" aria-label="Sammanfattning av odlingsytor">
+            <span>{sections.length} skiften</span>
+            <span>{fields.length} ytor</span>
+            <span>{formatArea(totalAreaM2)}</span>
+          </div>
+        </div>
 
         {error ? <p className="mt-4 rounded-xl border border-[var(--harvest)] bg-[#fff0ef] px-4 py-3 text-sm">{error}</p> : null}
 
@@ -431,22 +509,27 @@ export function FieldsWorkspace({
                 const placement = placements[field.id] ?? getInitialPlacement(field, index);
                 const cropSummary = summarizeFieldCrops(cropTitlesByFieldId.get(field.id) ?? []);
                 const isSelected = field.id === selectedField?.id;
+                const sectionColor = getSectionColor(field.sectionId, sections);
+                const fieldStyle = {
+                  ...getFieldStyle(field, placement, zoom),
+                  ["--section-color" as string]: sectionColor,
+                } as CSSProperties;
                 return (
                   <button
                     aria-current={isSelected ? "true" : undefined}
                     className={`portal-field-plot-link ${isSelected ? "is-selected" : ""}`}
                     key={field.id}
-                    onClick={() => setSelectedFieldId(field.id)}
                     onPointerDown={(event) => handlePointerDown(event, field)}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
-                    style={getFieldStyle(field, placement, zoom)}
+                    style={fieldStyle}
                     type="button"
                   >
                     <div className={getPlotClasses(field.type)}>
+                      <span className="portal-field-plot__surface" aria-hidden="true" />
                       <div className="relative z-10 flex min-w-0 items-center justify-between gap-2">
-                        <span className="min-w-0 truncate rounded-full bg-white/75 px-2 py-1 text-xs font-bold text-[var(--primary-strong)]">{field.name}</span>
-                        {field.areaM2 != null ? <span className="shrink-0 rounded-full bg-white/55 px-2 py-1 text-[0.68rem] font-semibold text-[var(--ink-muted)]">{formatArea(field.areaM2)}</span> : null}
+                        <span className="min-w-0 truncate rounded-full bg-white/75 px-2 py-1 text-xs font-semibold text-[var(--primary-strong)]">{field.name}</span>
+                        {field.areaM2 != null ? <span className="shrink-0 rounded-full bg-white/55 px-2 py-1 text-[0.68rem] font-medium text-[var(--ink-muted)]">{formatArea(field.areaM2)}</span> : null}
                       </div>
                       {cropSummary ? <span className="relative z-10 max-w-full truncate rounded-full bg-white/65 px-2 py-1 text-[0.72rem] text-[var(--ink-muted)]">{cropSummary}</span> : null}
                     </div>
@@ -459,18 +542,34 @@ export function FieldsWorkspace({
               <strong className="text-xl font-medium text-[var(--primary)]">Ingen odlingsyta än</strong>
             </div>
           )}
-          <span className="sticky bottom-3 left-3 inline-flex rounded-full border border-[#3b605e1a] bg-[#fffbf7db] px-3 py-1.5 text-xs text-[var(--ink-muted)]">Dra ytor för att flytta dem</span>
+          <span className="portal-field-map-note">Dra ytor för att flytta dem</span>
         </div>
       </section>
 
-      <aside className="grid min-w-0 content-start gap-4">
-        <section className="rounded-[22px] border border-[var(--border)] bg-white/90 p-5 shadow-[0_18px_40px_rgba(22,58,54,0.06)]">
-          <h3 className="text-xl font-light tracking-[-0.03em]">Bäddlista</h3>
+      <aside className="portal-fields-sidebar grid min-w-0 content-start gap-4">
+        <section className="portal-fields-sidebar-card rounded-[22px] border border-[var(--border)] bg-white/90 p-5 shadow-[0_18px_40px_rgba(22,58,54,0.06)]">
+          <div className="portal-fields-sidebar-head">
+            <div>
+              <p className="section-kicker">Skiften</p>
+              <h3 className="text-xl font-light tracking-[-0.03em]">Bäddlista</h3>
+            </div>
+            <p className="portal-fields-sidebar-meta">
+              {fields.length} ytor
+              {fieldsWithoutSection.length > 0 ? ` · ${fieldsWithoutSection.length} utan skifte` : ""}
+            </p>
+          </div>
+          {selectedField ? (
+            <div className="portal-selected-field-card mt-4" style={{ ["--section-color" as string]: getSectionColor(selectedField.sectionId, sections) } as CSSProperties}>
+              <strong>{selectedField.name}</strong>
+              <span>{getFieldTypeLabel(selectedField.type)} · {formatArea(selectedField.areaM2)} · {formatDimensions(selectedField)}</span>
+              <span>{selectedFieldSectionName}{selectedFieldCropSummary ? ` · ${selectedFieldCropSummary}` : ""}</span>
+            </div>
+          ) : null}
           <div className="portal-bed-list mt-4">
             {sections.map((section) => {
               const sectionFields = fields.filter((field) => field.sectionId === section.id);
               return (
-                <details className="portal-bed-section" key={section.id} open>
+                <details className="portal-bed-section" key={section.id} open style={{ ["--section-color" as string]: getSectionColor(section.id, sections) } as CSSProperties}>
                   <summary onClick={() => setSelectedSectionId(section.id)}>
                     <span className="portal-bed-section__summary">
                       <span className="portal-bed-section__title">
@@ -508,7 +607,7 @@ export function FieldsWorkspace({
                 </details>
               );
             })}
-            <details className="portal-bed-section" open>
+            <details className="portal-bed-section" open style={{ ["--section-color" as string]: getSectionColor(null, sections) } as CSSProperties}>
               <summary>
                 <span className="portal-bed-section__summary">
                   <span className="portal-bed-section__title">
@@ -516,11 +615,11 @@ export function FieldsWorkspace({
                     <strong>Utan skifte</strong>
                     <span className="portal-bed-toggle">▸</span>
                   </span>
-                  <span className="portal-bed-section__meta">{fields.filter((field) => !field.sectionId).length} bäddar</span>
+                  <span className="portal-bed-section__meta">{fieldsWithoutSection.length} bäddar</span>
                 </span>
               </summary>
               <div className="portal-bed-section__beds">
-                {fields.filter((field) => !field.sectionId).map((field) => (
+                {fieldsWithoutSection.map((field) => (
                   <div className={`portal-bed-row ${field.id === selectedField?.id ? "is-selected" : ""}`} key={field.id}>
                     <button onClick={() => { setSelectedFieldId(field.id); openFieldEditor(field); }} type="button">
                       <span className="portal-bed-dot" />
@@ -587,6 +686,16 @@ export function FieldsWorkspace({
               <h3 className="mt-1 text-2xl font-light tracking-[-0.04em]">{selectedField.name}</h3>
               <p className="mt-2 text-sm text-[var(--ink-muted)]">{getFieldTypeLabel(selectedField.type)} · {formatArea(selectedField.areaM2)} · {formatDimensions(selectedField)}</p>
             </div>
+            <div className="portal-field-info-meta">
+              <div>
+                <strong>Skifte</strong>
+                <span>{selectedFieldSectionName}</span>
+              </div>
+              <div>
+                <strong>Status</strong>
+                <span>{selectedFieldStatus}</span>
+              </div>
+            </div>
             <FieldFormFields field={selectedField} sections={sections} selectedSectionId={selectedSectionId} />
             <label className="grid gap-2 text-sm font-semibold">
               Rotation
@@ -606,6 +715,32 @@ export function FieldsWorkspace({
             </div>
           </form>
         ) : null}
+      </dialog>
+
+      <dialog className="portal-dialog" ref={helpDialogRef}>
+        <form className="portal-dialog__card portal-help-card" method="dialog">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-muted)]">Hjälp</p>
+            <h3 className="mt-1 text-2xl font-light tracking-[-0.04em]">Odlingsytor</h3>
+          </div>
+          <div className="portal-help-grid">
+            <article className="portal-help-item">
+              <strong>Kartan</strong>
+              <p>Kartan visar hela odlingen. Du kan panorera, zooma och flytta ytor för att bygga upp din layout.</p>
+            </article>
+            <article className="portal-help-item">
+              <strong>Skiften och bäddar</strong>
+              <p>Skiften håller ihop växtföljd och struktur. När du lägger till flera bäddar samtidigt placeras de i följd med mellanrum.</p>
+            </article>
+            <article className="portal-help-item">
+              <strong>Till odlingen</strong>
+              <p>Knappen zoomar och flyttar vyn så att hela den aktuella odlingen får plats i kartfönstret.</p>
+            </article>
+          </div>
+          <div className="flex justify-end">
+            <button className="portal-button-primary" type="submit">Stäng</button>
+          </div>
+        </form>
       </dialog>
     </section>
   );

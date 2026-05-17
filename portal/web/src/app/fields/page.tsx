@@ -40,11 +40,15 @@ export default async function FieldsPage({ searchParams }: FieldsPageProps) {
       ])
     : [[], [], [], [], []];
   const familyOptions = Array.from(
-    new Set(
-      [...personalSeeds, ...seedTemplates]
-        .map((seed) => seed.family.trim())
-        .filter(Boolean),
-    ),
+    [...personalSeeds, ...seedTemplates].reduce((families, seed) => {
+      const family = seed.family.trim();
+      if (!family) return families;
+      const key = family.toLocaleLowerCase("sv-SE");
+      if (!families.has(key)) {
+        families.set(key, family.charAt(0).toLocaleUpperCase("sv-SE") + family.slice(1));
+      }
+      return families;
+    }, new Map<string, string>()).values(),
   ).sort((left, right) => left.localeCompare(right, "sv", { sensitivity: "base" }));
 
   return (
