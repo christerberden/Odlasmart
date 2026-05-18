@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import type { CropRow } from "@/lib/data/crops";
 import type { FieldRow, SectionRow } from "@/lib/data/fields";
 import type { SeedStockBatchRow } from "@/lib/data/inventory";
 import type { PersonalSeedRow, SeedSchedule, SeedTemplateOption } from "@/lib/data/seeds";
 
 type CropCreateFormProps = {
   action: (formData: FormData) => void | Promise<void>;
+  crops: CropRow[];
   fields: FieldRow[];
   onCancel?: () => void;
   personalSeeds: PersonalSeedRow[];
@@ -41,6 +43,8 @@ type ScheduleFormState = {
   transplantEnd: string;
   transplantStart: string;
 };
+
+type PlanningSowMode = "forsadd" | "direktsadd";
 
 function getNumber(value: string | number | null | undefined) {
   if (value == null || value === "") {
@@ -107,25 +111,38 @@ function weekRange(start: number | null, end: number | null) {
   return `v.${start ?? end}`;
 }
 
-function scheduleToFormState(schedule: SeedSchedule | null | undefined): ScheduleFormState {
-  const selectedWeek = (start: number | null | undefined, end: number | null | undefined) => {
-    if (!start && !end) {
-      return "";
-    }
-    const safeStart = start ?? end ?? 1;
-    const safeEnd = end ?? start ?? safeStart;
-    return String(Math.round((safeStart + safeEnd) / 2));
-  };
+function getRecommendedWeek(start: number | null | undefined, end: number | null | undefined) {
+  if (!start && !end) {
+    return "";
+  }
 
+  const safeStart = start ?? end ?? 1;
+  const safeEnd = end ?? start ?? safeStart;
+  return String(Math.round((safeStart + safeEnd) / 2));
+}
+
+function formatRecommendedRange(start: number | null | undefined, end: number | null | undefined) {
+  if (!start && !end) {
+    return "";
+  }
+
+  if (!start || !end || start === end) {
+    return `rek. v.${start ?? end}`;
+  }
+
+  return `rek. v.${start}-${end}`;
+}
+
+function scheduleToFormState(schedule: SeedSchedule | null | undefined): ScheduleFormState {
   return {
-    directEnd: selectedWeek(schedule?.directStart, schedule?.directEnd),
-    directStart: selectedWeek(schedule?.directStart, schedule?.directEnd),
-    forsaddEnd: selectedWeek(schedule?.forsaddStart, schedule?.forsaddEnd),
-    forsaddStart: selectedWeek(schedule?.forsaddStart, schedule?.forsaddEnd),
-    harvestEnd: selectedWeek(schedule?.harvestStart, schedule?.harvestEnd),
-    harvestStart: selectedWeek(schedule?.harvestStart, schedule?.harvestEnd),
-    transplantEnd: selectedWeek(schedule?.transplantStart, schedule?.transplantEnd),
-    transplantStart: selectedWeek(schedule?.transplantStart, schedule?.transplantEnd),
+    directEnd: getRecommendedWeek(schedule?.directStart, schedule?.directEnd),
+    directStart: getRecommendedWeek(schedule?.directStart, schedule?.directEnd),
+    forsaddEnd: getRecommendedWeek(schedule?.forsaddStart, schedule?.forsaddEnd),
+    forsaddStart: getRecommendedWeek(schedule?.forsaddStart, schedule?.forsaddEnd),
+    harvestEnd: getRecommendedWeek(schedule?.harvestStart, schedule?.harvestEnd),
+    harvestStart: getRecommendedWeek(schedule?.harvestStart, schedule?.harvestEnd),
+    transplantEnd: getRecommendedWeek(schedule?.transplantStart, schedule?.transplantEnd),
+    transplantStart: getRecommendedWeek(schedule?.transplantStart, schedule?.transplantEnd),
   };
 }
 
@@ -147,13 +164,15 @@ function formStateToSchedule(schedule: ScheduleFormState): SeedSchedule {
   };
 }
 
-function getSowMethodOptions(method?: string | null) {
-  return [...new Set([
-    method,
-    "Försådd",
-    "Direktsådd",
-    "Försådd+Direktsådd",
-  ].filter(Boolean) as string[])];
+function getPlanningSowModes(schedule: SeedSchedule | null | undefined): PlanningSowMode[] {
+  const options: PlanningSowMode[] = [];
+  if (schedule?.forsaddStart || schedule?.forsaddEnd) {
+    options.push("forsadd");
+  }
+  if (schedule?.directStart || schedule?.directEnd) {
+    options.push("direktsadd");
+  }
+  return options;
 }
 
 function isWeekOutsideRecommendation(week: string, start: number | null | undefined, end: number | null | undefined) {
@@ -165,24 +184,45 @@ function isWeekOutsideRecommendation(week: string, start: number | null | undefi
   return selectedWeek < (start ?? end ?? selectedWeek) || selectedWeek > (end ?? start ?? selectedWeek);
 }
 
-function filterScheduleBySowMethod(schedule: ScheduleFormState, method: string): ScheduleFormState {
-  const normalized = method.toLocaleLowerCase("sv");
-  const usesDirectSowing = normalized.includes("direkt");
-  const usesPresowing = normalized.includes("för") || normalized.includes("for") || normalized.includes("f");
+function clampWeek(value: number) {
+  return Math.max(1, Math.min(52, Math.round(value)));
+}
+
+function getPlanningRange(schedule: SeedSchedule | null) {
+  const start = schedule?.directStart ?? schedule?.transplantStart ?? schedule?.directEnd ?? schedule?.transplantEnd ?? null;
+  const end = schedule?.harvestEnd ?? schedule?.harvestStart ?? null;
+
+  if (!start || !end) {
+    return null;
+  }
 
   return {
-    ...schedule,
-    directEnd: usesDirectSowing ? schedule.directEnd : "",
-    directStart: usesDirectSowing ? schedule.directStart : "",
-    forsaddEnd: usesPresowing ? schedule.forsaddEnd : "",
-    forsaddStart: usesPresowing ? schedule.forsaddStart : "",
-    transplantEnd: usesPresowing ? schedule.transplantEnd : "",
-    transplantStart: usesPresowing ? schedule.transplantStart : "",
+    end: Math.max(start, end),
+    start: Math.min(start, end),
   };
+}
+
+function rangesOverlap(a: { start: number; end: number } | null, b: { start: number; end: number } | null) {
+  if (!a || !b) {
+    return false;
+  }
+  return a.start <= b.end && b.start <= a.end;
+}
+
+function getCropFamily(crop: CropRow, personalSeeds: PersonalSeedRow[], seedTemplates: SeedTemplateOption[]) {
+  const personalSeed = personalSeeds.find((seed) => seed.id === crop.personalSeedId);
+  if (personalSeed?.family) {
+    return personalSeed.family;
+  }
+
+  const normalizedTitle = crop.title.toLocaleLowerCase("sv");
+  const template = seedTemplates.find((seed) => normalizedTitle.includes(seed.crop.toLocaleLowerCase("sv")));
+  return template?.family ?? "";
 }
 
 export function CropCreateForm({
   action,
+  crops,
   fields,
   onCancel,
   personalSeeds,
@@ -200,9 +240,10 @@ export function CropCreateForm({
   const [rowSpacingCm, setRowSpacingCm] = useState("");
   const [plantSpacingCm, setPlantSpacingCm] = useState("");
   const [selectedStockBatchId, setSelectedStockBatchId] = useState("");
-  const [sowMethod, setSowMethod] = useState("");
+  const [planningMode, setPlanningMode] = useState<PlanningSowMode>("direktsadd");
   const [showSpacingDialog, setShowSpacingDialog] = useState(false);
   const [scheduleValues, setScheduleValues] = useState<ScheduleFormState>(() => scheduleToFormState(null));
+  const [linkedGaps, setLinkedGaps] = useState({ presowToTransplant: 0, transplantToHarvest: 0 });
 
   const seedOptions: SeedOption[] = [
     ...personalSeeds.map((seed) => ({
@@ -236,6 +277,7 @@ export function CropCreateForm({
   const selectedSeed = seedOptions.find((seed) => seed.id === seedSourceId) ?? null;
   const selectedSchedule = formStateToSchedule(scheduleValues);
   const selectedField = fields.find((field) => field.id === fieldId) ?? null;
+  const selectedSection = sections.find((section) => section.id === selectedField?.sectionId) ?? null;
   const fieldBedWidthCm = selectedField?.widthM && selectedField?.lengthM
     ? Math.min(selectedField.widthM, selectedField.lengthM) * 100
     : null;
@@ -256,15 +298,16 @@ export function CropCreateForm({
     ? layout.totalSeedPositions
     : fallbackSeedCount;
   const familyImage = selectedSeed ? getFamilyImage(selectedSeed.family) : "";
+  const sowModes = getPlanningSowModes(selectedSeed?.schedule);
   const matchingStockBatches = selectedSeed
     ? stockBatches.filter((batch) => {
-        if (selectedSeed.personalSeedId && batch.personalSeedId === selectedSeed.personalSeedId) {
-          return true;
-        }
+      if (selectedSeed.personalSeedId && batch.personalSeedId === selectedSeed.personalSeedId) {
+        return true;
+      }
 
-        return batch.crop.toLocaleLowerCase("sv") === selectedSeed.crop.toLocaleLowerCase("sv");
-      })
-    : stockBatches;
+      return batch.crop.toLocaleLowerCase("sv") === selectedSeed.crop.toLocaleLowerCase("sv");
+    })
+    : [];
   const groupedFields = [
     ...sections.map((section) => ({
       id: section.id,
@@ -278,29 +321,148 @@ export function CropCreateForm({
     },
   ].filter((group) => group.fields.length > 0);
 
+  const selectedYear = new Date().getFullYear();
+  const selectedRange = getPlanningRange(selectedSchedule);
+  const overlappingArea = selectedField
+    ? crops
+      .filter((crop) => crop.fields.some((cropField) => cropField.fieldId === selectedField.id))
+      .filter((crop) => crop.startYear <= selectedYear && crop.endYear >= selectedYear)
+      .filter((crop) => rangesOverlap(selectedRange, getPlanningRange(crop.schedule)))
+      .reduce((sum, crop) => sum + (crop.areaM2 ?? crop.fields[0]?.plannedAreaM2 ?? 0), 0)
+    : 0;
+  const totalArea = selectedField?.areaM2 ?? 0;
+  const remainingArea = Math.max(totalArea - overlappingArea, 0);
+  const requestedArea = getNumber(areaM2) ?? 0;
+  const selectedFieldNote = selectedField
+    ? `Vald bädd: ${selectedField.name}${selectedSection ? ` (${selectedSection.name})` : ""}. Minst ${remainingArea.toLocaleString("sv-SE", { maximumFractionDigits: 2 })} m² ledigt under perioden av ${totalArea.toLocaleString("sv-SE", { maximumFractionDigits: 2 })} m². ${requestedArea > remainingArea + 0.0001 ? "Får inte plats." : "Får plats."}`
+    : "Vald bädd: välj en bädd.";
+
+  const rotationSections = sections
+    .filter((section) => section.rotationEnabled)
+    .sort((a, b) => (a.rotationOrder ?? Number.MAX_SAFE_INTEGER) - (b.rotationOrder ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name, "sv"));
+  const previousFamilySectionId = selectedSeed?.family
+    ? crops
+      .filter((crop) => crop.startYear <= selectedYear - 1 && crop.endYear >= selectedYear - 1)
+      .filter((crop) => getCropFamily(crop, personalSeeds, seedTemplates).toLocaleLowerCase("sv") === selectedSeed.family.toLocaleLowerCase("sv"))
+      .flatMap((crop) => crop.fields.map((cropField) => fields.find((field) => field.id === cropField.fieldId)?.sectionId))
+      .find(Boolean) ?? null
+    : null;
+  const previousSection = rotationSections.find((section) => section.id === previousFamilySectionId) ?? null;
+  const recommendedSection = previousSection
+    ? rotationSections[(rotationSections.findIndex((section) => section.id === previousSection.id) + 1) % rotationSections.length] ?? null
+    : null;
+  const rotationNote = !selectedSeed?.family
+    ? "Växtföljd: välj en gröda för att få förslag."
+    : rotationSections.length === 0
+      ? "Växtföljd: inga skiften är markerade att ingå ännu."
+      : !recommendedSection
+        ? selectedSection?.rotationEnabled === false
+          ? `Växtföljd: ${selectedSection.name} ingår inte i växtföljden. Välj gärna ett roterande skifte för ${selectedSeed.family}.`
+          : `Växtföljd: ingen tidigare placering hittades för ${selectedSeed.family}. Du kan starta i valfritt skifte som ingår.`
+        : !selectedSection
+          ? `${selectedSeed.family} låg senast i ${previousSection?.name ?? "okänt skifte"} ${selectedYear - 1}. Välj ${recommendedSection.name} ${selectedYear}.`
+          : !selectedSection.rotationEnabled
+            ? `Vald bädd ligger i ${selectedSection.name}, som inte ingår i växtföljden. Välj ${recommendedSection.name}.`
+            : selectedSection.id !== recommendedSection.id
+              ? `${selectedSeed.family} låg senast i ${previousSection?.name ?? "okänt skifte"} ${selectedYear - 1}. För växtföljd: välj ${recommendedSection.name}. Vald bädd ligger i ${selectedSection.name}.`
+              : `Bra val. ${selectedSeed.family} fortsätter i ${selectedSection.name} ${selectedYear}.`;
+
+  const visibleStages = [
+    {
+      active: planningMode === "forsadd" && Boolean(selectedSeed?.schedule.forsaddStart || selectedSeed?.schedule.forsaddEnd || scheduleValues.forsaddStart),
+      color: "#6f8fc8",
+      label: "Försådd",
+      nameEnd: "forsaddEnd" as const,
+      nameStart: "forsaddStart" as const,
+      recommendedEnd: selectedSeed?.schedule.forsaddEnd ?? null,
+      recommendedStart: selectedSeed?.schedule.forsaddStart ?? null,
+      selectedWeek: selectedSchedule.forsaddStart ?? null,
+      value: scheduleValues.forsaddStart,
+    },
+    {
+      active: planningMode === "direktsadd" && Boolean(selectedSeed?.schedule.directStart || selectedSeed?.schedule.directEnd || scheduleValues.directStart),
+      color: "#c58f45",
+      label: "Direktsådd",
+      nameEnd: "directEnd" as const,
+      nameStart: "directStart" as const,
+      recommendedEnd: selectedSeed?.schedule.directEnd ?? null,
+      recommendedStart: selectedSeed?.schedule.directStart ?? null,
+      selectedWeek: selectedSchedule.directStart ?? null,
+      value: scheduleValues.directStart,
+    },
+    {
+      active: planningMode === "forsadd" && Boolean(selectedSeed?.schedule.transplantStart || selectedSeed?.schedule.transplantEnd || scheduleValues.transplantStart),
+      color: "#5f9b71",
+      label: "Utplantering",
+      nameEnd: "transplantEnd" as const,
+      nameStart: "transplantStart" as const,
+      recommendedEnd: selectedSeed?.schedule.transplantEnd ?? null,
+      recommendedStart: selectedSeed?.schedule.transplantStart ?? null,
+      selectedWeek: selectedSchedule.transplantStart ?? null,
+      value: scheduleValues.transplantStart,
+    },
+    {
+      active: Boolean(selectedSeed?.schedule.harvestStart || selectedSeed?.schedule.harvestEnd || scheduleValues.harvestStart),
+      color: "#b96f5b",
+      label: "Skörd",
+      nameEnd: "harvestEnd" as const,
+      nameStart: "harvestStart" as const,
+      recommendedEnd: selectedSeed?.schedule.harvestEnd ?? null,
+      recommendedStart: selectedSeed?.schedule.harvestStart ?? null,
+      selectedWeek: selectedSchedule.harvestStart ?? null,
+      value: scheduleValues.harvestStart,
+    },
+  ].filter((item) => item.active);
+
+  function syncLinkedGaps(nextSchedule: ScheduleFormState) {
+    const presowWeek = getNumber(nextSchedule.forsaddStart);
+    const transplantWeek = getNumber(nextSchedule.transplantStart);
+    const harvestWeek = getNumber(nextSchedule.harvestStart);
+
+    setLinkedGaps({
+      presowToTransplant: presowWeek != null && transplantWeek != null ? transplantWeek - presowWeek : 0,
+      transplantToHarvest: transplantWeek != null && harvestWeek != null ? harvestWeek - transplantWeek : 0,
+    });
+  }
+
+  function applyPlanningMode(seed: SeedOption | null, mode: PlanningSowMode) {
+    const nextSchedule = scheduleToFormState(seed?.schedule);
+    const nextValues: ScheduleFormState = {
+      ...nextSchedule,
+      directEnd: mode === "direktsadd" ? nextSchedule.directStart : "",
+      directStart: mode === "direktsadd" ? nextSchedule.directStart : "",
+      forsaddEnd: mode === "forsadd" ? nextSchedule.forsaddStart : "",
+      forsaddStart: mode === "forsadd" ? nextSchedule.forsaddStart : "",
+      harvestEnd: nextSchedule.harvestStart,
+      harvestStart: nextSchedule.harvestStart,
+      transplantEnd: mode === "forsadd" ? nextSchedule.transplantStart : "",
+      transplantStart: mode === "forsadd" ? nextSchedule.transplantStart : "",
+    };
+
+    setScheduleValues(nextValues);
+    syncLinkedGaps(nextValues);
+  }
+
   function handleSeedChange(value: string) {
-    const seed = seedOptions.find((option) => option.id === value);
+    const seed = seedOptions.find((option) => option.id === value) ?? null;
     const nextStockBatch = seed
       ? stockBatches.find((batch) => {
-          if (seed.personalSeedId && batch.personalSeedId === seed.personalSeedId) {
-            return true;
-          }
+        if (seed.personalSeedId && batch.personalSeedId === seed.personalSeedId) {
+          return true;
+        }
 
-          return batch.crop.toLocaleLowerCase("sv") === seed.crop.toLocaleLowerCase("sv");
-        })
+        return batch.crop.toLocaleLowerCase("sv") === seed.crop.toLocaleLowerCase("sv");
+      })
       : null;
+    const nextMode = getPlanningSowModes(seed?.schedule)[0] ?? "direktsadd";
+
     setSeedSourceId(value);
     setSelectedStockBatchId(nextStockBatch?.id ?? "");
     setRowSpacingCm(seed?.rowSpacing ?? "");
     setPlantSpacingCm(seed?.spacing ?? "");
-    setSowMethod(seed?.method ?? "");
-    setScheduleValues(filterScheduleBySowMethod(scheduleToFormState(seed?.schedule), seed?.method ?? ""));
-    setTitle(seed ? [seed.crop, seed.variety].filter(Boolean).join(" ") : "");
-  }
-
-  function handleSowMethodChange(value: string) {
-    setSowMethod(value);
-    setScheduleValues((current) => filterScheduleBySowMethod(current, value));
+    setPlanningMode(nextMode);
+    setTitle(seed?.variety ?? "");
+    applyPlanningMode(seed, nextMode);
   }
 
   function handleFieldChange(value: string) {
@@ -310,39 +472,100 @@ export function CropCreateForm({
     setAreaM2(field?.areaM2 ? String(field.areaM2).replace(".", ",") : "");
   }
 
+  function handleWeekChange(nameStart: keyof ScheduleFormState, nameEnd: keyof ScheduleFormState, value: string) {
+    setScheduleValues((current) => {
+      const next = { ...current, [nameStart]: value, [nameEnd]: value };
+
+      if (planningMode === "forsadd") {
+        const selectedWeek = getNumber(value);
+
+        if (selectedWeek != null && nameStart === "forsaddStart") {
+          const transplantWeek = clampWeek(selectedWeek + linkedGaps.presowToTransplant);
+          const harvestWeek = clampWeek(transplantWeek + linkedGaps.transplantToHarvest);
+          next.transplantStart = String(transplantWeek);
+          next.transplantEnd = String(transplantWeek);
+          next.harvestStart = String(harvestWeek);
+          next.harvestEnd = String(harvestWeek);
+        }
+
+        if (selectedWeek != null && nameStart === "transplantStart") {
+          const presowWeek = clampWeek(selectedWeek - linkedGaps.presowToTransplant);
+          const harvestWeek = clampWeek(selectedWeek + linkedGaps.transplantToHarvest);
+          next.forsaddStart = String(presowWeek);
+          next.forsaddEnd = String(presowWeek);
+          next.harvestStart = String(harvestWeek);
+          next.harvestEnd = String(harvestWeek);
+        }
+
+        if (selectedWeek != null && nameStart === "harvestStart") {
+          const transplantWeek = clampWeek(selectedWeek - linkedGaps.transplantToHarvest);
+          const presowWeek = clampWeek(transplantWeek - linkedGaps.presowToTransplant);
+          next.transplantStart = String(transplantWeek);
+          next.transplantEnd = String(transplantWeek);
+          next.forsaddStart = String(presowWeek);
+          next.forsaddEnd = String(presowWeek);
+        }
+      }
+
+      return next;
+    });
+  }
+
   function applySpacingDialog() {
     setShowSpacingDialog(false);
   }
 
   return (
     <form action={action} className="portal-dialog__card planning-form">
+      <button className="planning-form__close" type="button" aria-label="Stäng" onClick={onCancel}>
+        ×
+      </button>
+
       <aside className="planning-form__sidebar">
-        <button className="planning-form__close" type="button" aria-label="Stäng" onClick={onCancel}>
-          ×
-        </button>
         <div className="planning-form__visual">
           {familyImage ? <span style={{ backgroundImage: `url(${familyImage})` }} /> : <strong>{selectedSeed?.family?.slice(0, 1) ?? "?"}</strong>}
         </div>
-        <p className="portal-kicker">Lägg till gröda</p>
-        <h3>{title || "Ny gröda"}</h3>
-        <div className="planning-form__notes">
-          <span>{workspaceName ?? "Din odling"}</span>
-          <span>{selectedSeed?.family || "Välj gröda för familj och schema"}</span>
-          <span>{selectedField?.name || "Välj bädd"}</span>
+
+        <div className="planning-form__summary">
+          <h3>{selectedSeed?.crop || "Ny gröda"}</h3>
+          <div className="planning-form__notes">
+            <span>{selectedFieldNote}</span>
+            <span>{rotationNote}</span>
+            {!selectedSeed && workspaceName ? <span>{workspaceName}</span> : null}
+          </div>
         </div>
       </aside>
 
       <section className="planning-form__main">
         <div className="planning-form__head">
-          <p className="portal-kicker">Planering</p>
           <h3>Lägg till gröda</h3>
         </div>
 
         <div className="planning-form__grid">
-          <label className="planning-form__wide">
-            Frö / gröda
+          {sowModes.length > 1 ? (
+            <div className="planning-form__wide planning-mode-switcher-wrap">
+              <span>Lägg till som</span>
+              <div className="planning-mode-switcher" role="tablist" aria-label="Välj såsätt">
+                <button className={planningMode === "forsadd" ? "is-active" : ""} type="button" onClick={() => {
+                  setPlanningMode("forsadd");
+                  applyPlanningMode(selectedSeed, "forsadd");
+                }}>
+                  Från försådd
+                </button>
+                <button className={planningMode === "direktsadd" ? "is-active" : ""} type="button" onClick={() => {
+                  setPlanningMode("direktsadd");
+                  applyPlanningMode(selectedSeed, "direktsadd");
+                }}>
+                  Direktsådd
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <label>
+            Gröda
             <select name="personalSeedId" onChange={(event) => handleSeedChange(event.target.value)} value={seedSourceId}>
-              <option value="">Ingen fröpost</option>
+              <option value="">Välj gröda</option>
               {personalSeeds.length > 0 ? (
                 <optgroup label="Mina fröer">
                   {personalSeeds.map((seed) => (
@@ -363,82 +586,44 @@ export function CropCreateForm({
           </label>
 
           <label>
-            Namn i odlingen
-            <input name="title" onChange={(event) => setTitle(event.target.value)} required value={title} />
+            Sort / anteckning
+            <input onChange={(event) => setTitle(event.target.value)} placeholder="Sort eller egen anteckning" value={title} />
           </label>
 
-          <label>
-            Omgång
-            <input name="batchName" placeholder="Vår, växthus eller följd 2" />
-          </label>
-
-          <label>
-            Såmetod
-            <select name="sowMethod" onChange={(event) => handleSowMethodChange(event.target.value)} value={sowMethod}>
-              <option value="">Välj såmetod</option>
-              {getSowMethodOptions(selectedSeed?.method).map((method) => (
-                <option key={method} value={method}>{method}</option>
+          <label className="planning-form__wide">
+            Frö från lager
+            <select name="seedStockBatchId" onChange={(event) => setSelectedStockBatchId(event.target.value)} value={selectedStockBatchId}>
+              <option value="">
+                {selectedSeed
+                  ? (matchingStockBatches.length > 0 ? "Välj fröpost i lager" : "Inga fröer i lager för vald gröda")
+                  : "Välj gröda först"}
+              </option>
+              {matchingStockBatches.map((batch) => (
+                <option key={batch.id} value={batch.id}>
+                  {[batch.name || batch.crop, batch.variety].filter(Boolean).join(" - ")} ({batch.quantity} st)
+                </option>
               ))}
             </select>
           </label>
 
-          <label>
-            År
-            <input inputMode="numeric" name="startYear" placeholder={String(new Date().getFullYear())} />
-          </label>
-
           <div className="planning-form__wide planning-schedule-grid planning-schedule-grid--editable">
-            <WeekInputPair
-              end={scheduleValues.forsaddEnd}
-              label="Försådd"
-              nameEnd="forsaddEnd"
-              nameStart="forsaddStart"
-              onChange={setScheduleValues}
-              recommendedEnd={selectedSeed?.schedule.forsaddEnd ?? null}
-              recommendedStart={selectedSeed?.schedule.forsaddStart ?? null}
-              start={scheduleValues.forsaddStart}
-            />
-            <WeekInputPair
-              end={scheduleValues.directEnd}
-              label="Direktsådd"
-              nameEnd="directEnd"
-              nameStart="directStart"
-              onChange={setScheduleValues}
-              recommendedEnd={selectedSeed?.schedule.directEnd ?? null}
-              recommendedStart={selectedSeed?.schedule.directStart ?? null}
-              start={scheduleValues.directStart}
-            />
-            <WeekInputPair
-              end={scheduleValues.transplantEnd}
-              label="Utplantering"
-              nameEnd="transplantEnd"
-              nameStart="transplantStart"
-              onChange={setScheduleValues}
-              recommendedEnd={selectedSeed?.schedule.transplantEnd ?? null}
-              recommendedStart={selectedSeed?.schedule.transplantStart ?? null}
-              start={scheduleValues.transplantStart}
-            />
-            <WeekInputPair
-              end={scheduleValues.harvestEnd}
-              label="Skörd"
-              nameEnd="harvestEnd"
-              nameStart="harvestStart"
-              onChange={setScheduleValues}
-              recommendedEnd={selectedSeed?.schedule.harvestEnd ?? null}
-              recommendedStart={selectedSeed?.schedule.harvestStart ?? null}
-              start={scheduleValues.harvestStart}
-            />
+            {visibleStages.map((stage) => (
+              <WeekInputPair
+                key={stage.label}
+                end={scheduleValues[stage.nameEnd]}
+                label={stage.label}
+                nameEnd={stage.nameEnd}
+                nameStart={stage.nameStart}
+                onChange={setScheduleValues}
+                onWeekChange={handleWeekChange}
+                recommendedEnd={stage.recommendedEnd}
+                recommendedStart={stage.recommendedStart}
+                start={stage.value}
+              />
+            ))}
           </div>
 
           <ScheduleWarning schedule={scheduleValues} seedSchedule={selectedSeed?.schedule ?? null} />
-
-          <div className="planning-form__wide planning-mini-timeline">
-            <div className="planning-mini-timeline__head">
-              <strong>Planöversikt</strong>
-              <span>Rekommenderade intervall i bakgrunden, valda veckor ovanpå.</span>
-            </div>
-            <RecommendedMiniTimeline recommendedSchedule={selectedSeed?.schedule ?? null} selectedSchedule={selectedSchedule} />
-          </div>
 
           <div className="planning-form__wide planning-bed-picker">
             <div className="planning-bed-picker__head">
@@ -483,74 +668,54 @@ export function CropCreateForm({
             </select>
           </label>
 
-          <label>
-            Yta (m²)
-            <input inputMode="decimal" name="areaM2" onChange={(event) => setAreaM2(event.target.value)} value={areaM2} />
-          </label>
-
-          <div className="planning-sowing-summary-card">
-            <span>Antal frö</span>
-            <strong>{seedCount || 0}</strong>
-            <small>{layout.rowCount ? `${layout.rowCount} rader × ${layout.plantsPerRow} platser per rad` : "Välj gröda och bädd."}</small>
-            <button type="button" onClick={() => setShowSpacingDialog(true)}>Anpassa</button>
+          <div className="planning-form__wide planning-sowing-inline">
+            <label className="planning-sowing-inline__area">
+              Yta (m²)
+              <input inputMode="decimal" name="areaM2" onChange={(event) => setAreaM2(event.target.value)} value={areaM2} />
+            </label>
+            <div className="planning-sowing-inline__control" aria-label="Anpassa såavstånd">
+              <button className="planning-sowing-inline__button" type="button" onClick={() => setShowSpacingDialog(true)}>Anpassa</button>
+            </div>
+            <div className="planning-sowing-summary-card">
+              <span>Antal frö</span>
+              <strong>{seedCount || 0}</strong>
+              <small>{layout.rowCount ? `${layout.rowCount} rader x ${layout.plantsPerRow} platser per rad` : "Välj gröda och bädd."}</small>
+            </div>
           </div>
 
-          <label>
+          <div className="planning-form__wide planning-mini-timeline">
+            <div className="planning-mini-timeline__head">
+              <strong>Planöversikt</strong>
+              <span>Rekommenderade intervall i bakgrunden, valda veckor ovanpå.</span>
+            </div>
+            <RecommendedMiniTimeline rows={visibleStages} />
+          </div>
+
+          <input name="title" type="hidden" value={[selectedSeed?.crop, title].filter(Boolean).join(", ")} />
+          <input name="batchName" type="hidden" value={title || selectedSeed?.crop || ""} />
+          <input name="sowMethod" type="hidden" value={planningMode === "forsadd" ? "Försådd" : "Direktsådd"} />
+          <input name="startYear" type="hidden" value={String(selectedYear)} />
+          <input name="note" type="hidden" value="" />
+          <input name="plannedSeedCount" type="hidden" value={seedCount || ""} />
+
+          <label className="planning-form__hidden">
             Bäddbredd cm
             <input inputMode="decimal" name="bedWidthCm" onChange={(event) => setBedWidthCm(event.target.value)} value={bedWidthCm} />
           </label>
 
-          <label>
+          <label className="planning-form__hidden">
             Radavstånd cm
             <input inputMode="decimal" name="rowSpacingCm" onChange={(event) => setRowSpacingCm(event.target.value)} value={rowSpacingCm} />
           </label>
 
-          <label>
+          <label className="planning-form__hidden">
             Plantavstånd cm
             <input inputMode="decimal" name="plantSpacingCm" onChange={(event) => setPlantSpacingCm(event.target.value)} value={plantSpacingCm} />
           </label>
 
-          <label>
+          <label className="planning-form__hidden">
             Rader
-            <input inputMode="numeric" name="plannedRows" onChange={(event) => setManualRows(event.target.value)} placeholder="auto" value={manualRows} />
-          </label>
-
-          <label className="planning-form__wide">
-            Frö från lager
-            <select
-              name="seedStockBatchId"
-              onChange={(event) => setSelectedStockBatchId(event.target.value)}
-              value={selectedStockBatchId}
-            >
-              <option value="">Välj vid sådd</option>
-              {matchingStockBatches.map((batch) => (
-                <option key={batch.id} value={batch.id}>
-                  {[batch.name || batch.crop, batch.variety].filter(Boolean).join(" - ")} ({batch.quantity} st)
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {!seedSourceId ? (
-            <div className="planning-form__wide planning-inline-question">
-              Vill du planera en gröda utan fröpost? Lägg gärna till den under Mina fröer först om den ska kopplas till frölagret.
-            </div>
-          ) : selectedSeed && matchingStockBatches.length === 0 ? (
-            <div className="planning-form__wide planning-inline-question">
-              Ingen matchande lagerpost hittades för {selectedSeed.crop}. Vill du lägga till den i Mina fröer innan du sår?
-            </div>
-          ) : null}
-
-          <input name="plannedSeedCount" type="hidden" value={seedCount || ""} />
-          <div className="planning-seed-count planning-seed-count--compact">
-            <span>Antal frö</span>
-            <strong>{seedCount || 0}</strong>
-            <small>{layout.rowCount ? `${layout.rowCount} rader × ${layout.plantsPerRow} platser` : "Välj gröda och bädd."}</small>
-          </div>
-
-          <label className="planning-form__wide">
-            Anteckning
-            <input name="note" placeholder="Plan, sortval eller uppföljning" />
+            <input inputMode="numeric" name="plannedRows" onChange={(event) => setManualRows(event.target.value)} value={manualRows} />
           </label>
         </div>
 
@@ -606,43 +771,16 @@ export function CropCreateForm({
 }
 
 function RecommendedMiniTimeline({
-  recommendedSchedule,
-  selectedSchedule,
+  rows,
 }: {
-  recommendedSchedule: SeedSchedule | null;
-  selectedSchedule: SeedSchedule | null;
+  rows: {
+    color: string;
+    label: string;
+    recommendedEnd: number | null;
+    recommendedStart: number | null;
+    selectedWeek: number | null;
+  }[];
 }) {
-  const rows = [
-    {
-      color: "#6f8fc8",
-      label: "Försådd",
-      recommendedEnd: recommendedSchedule?.forsaddEnd ?? null,
-      recommendedStart: recommendedSchedule?.forsaddStart ?? null,
-      selectedWeek: selectedSchedule?.forsaddStart ?? null,
-    },
-    {
-      color: "#c58f45",
-      label: "Direktsådd",
-      recommendedEnd: recommendedSchedule?.directEnd ?? null,
-      recommendedStart: recommendedSchedule?.directStart ?? null,
-      selectedWeek: selectedSchedule?.directStart ?? null,
-    },
-    {
-      color: "#5f9b71",
-      label: "Utplantering",
-      recommendedEnd: recommendedSchedule?.transplantEnd ?? null,
-      recommendedStart: recommendedSchedule?.transplantStart ?? null,
-      selectedWeek: selectedSchedule?.transplantStart ?? null,
-    },
-    {
-      color: "#b96f5b",
-      label: "Skörd",
-      recommendedEnd: recommendedSchedule?.harvestEnd ?? null,
-      recommendedStart: recommendedSchedule?.harvestStart ?? null,
-      selectedWeek: selectedSchedule?.harvestStart ?? null,
-    },
-  ];
-
   return (
     <div className="planning-mini-timeline__rows">
       <div className="planning-mini-timeline__ruler" aria-hidden="true">
@@ -661,8 +799,8 @@ function RecommendedMiniTimeline({
                 <i
                   className="planning-mini-timeline__recommended"
                   style={{
-                    gridColumn: `${Math.max(1, Math.min(recommendedStart, 52))} / ${Math.max(1, Math.min(recommendedEnd + 1, 53))}`,
                     background: row.color,
+                    gridColumn: `${Math.max(1, Math.min(recommendedStart, 52))} / ${Math.max(1, Math.min(recommendedEnd + 1, 53))}`,
                   }}
                 />
               ) : null}
@@ -670,8 +808,8 @@ function RecommendedMiniTimeline({
                 <i
                   className="planning-mini-timeline__selected"
                   style={{
-                    gridColumn: `${Math.max(1, Math.min(row.selectedWeek, 52))} / ${Math.max(2, Math.min(row.selectedWeek + 1, 53))}`,
                     background: row.color,
+                    gridColumn: `${Math.max(1, Math.min(row.selectedWeek, 52))} / ${Math.max(2, Math.min(row.selectedWeek + 1, 53))}`,
                   }}
                 />
               ) : null}
@@ -710,6 +848,7 @@ function WeekInputPair({
   nameEnd,
   nameStart,
   onChange,
+  onWeekChange,
   recommendedEnd,
   recommendedStart,
   start,
@@ -719,6 +858,7 @@ function WeekInputPair({
   nameEnd: keyof ScheduleFormState;
   nameStart: keyof ScheduleFormState;
   onChange: Dispatch<SetStateAction<ScheduleFormState>>;
+  onWeekChange: (nameStart: keyof ScheduleFormState, nameEnd: keyof ScheduleFormState, value: string) => void;
   recommendedEnd: number | null;
   recommendedStart: number | null;
   start: string;
@@ -726,34 +866,32 @@ function WeekInputPair({
   const outsideRecommendation = isWeekOutsideRecommendation(start, recommendedStart, recommendedEnd);
 
   return (
-    <fieldset className={`planning-week-pair${outsideRecommendation ? " is-warning" : ""}`}>
-      <legend>{label}</legend>
-      <strong>{weekRange(getNumber(start), getNumber(end))}</strong>
-      <small>rek. {weekRange(recommendedStart, recommendedEnd)}</small>
-      <div>
-        <input
-          aria-label={`${label} startvecka`}
-          inputMode="numeric"
-          max={52}
-          min={1}
-          name={nameStart}
-          onChange={(event) => onChange((current) => ({ ...current, [nameEnd]: event.target.value, [nameStart]: event.target.value }))}
-          placeholder="vecka"
-          value={start}
-        />
-        <input
-          aria-label={`${label} slutvecka`}
-          inputMode="numeric"
-          max={52}
-          min={1}
-          name={nameEnd}
-          onChange={(event) => onChange((current) => ({ ...current, [nameEnd]: event.target.value }))}
-          hidden
-          placeholder="slut"
-          value={end}
-        />
-      </div>
-    </fieldset>
+    <label className={`planning-week-pair${outsideRecommendation ? " is-warning" : ""}`}>
+      <span className="planning-week-pair__label">
+        <span>{label}</span>
+        <small>{formatRecommendedRange(recommendedStart, recommendedEnd)}</small>
+      </span>
+      <input
+        aria-label={`${label} vecka`}
+        inputMode="numeric"
+        max={52}
+        min={1}
+        name={nameStart}
+        onChange={(event) => onWeekChange(nameStart, nameEnd, event.target.value)}
+        placeholder="vecka"
+        value={start}
+      />
+      <input
+        aria-label={`${label} slutvecka`}
+        hidden
+        inputMode="numeric"
+        max={52}
+        min={1}
+        name={nameEnd}
+        onChange={(event) => onChange((current) => ({ ...current, [nameEnd]: event.target.value }))}
+        value={end}
+      />
+    </label>
   );
 }
 

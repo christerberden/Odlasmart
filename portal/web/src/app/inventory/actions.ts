@@ -112,6 +112,36 @@ type PersonalSeedLookupClient = {
   };
 };
 
+type PersonalSeedListClient = {
+  from(table: "personal_seeds"): {
+    select(columns: "id, crop, variety, schedule"): {
+      eq(column: "workspace_id", value: string): Promise<{
+        data: {
+          id: string;
+          crop: string;
+          variety: string;
+          schedule: Json | null;
+        }[] | null;
+        error: { message: string } | null;
+      }>;
+    };
+  };
+};
+
+type SeedStockListClient = {
+  from(table: "seed_stock_batches"): {
+    select(columns: "id, personal_seed_id"): {
+      eq(column: "workspace_id", value: string): Promise<{
+        data: {
+          id: string;
+          personal_seed_id: string | null;
+        }[] | null;
+        error: { message: string } | null;
+      }>;
+    };
+  };
+};
+
 function getFormString(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
 }
@@ -129,6 +159,18 @@ function getOptionalNumber(formData: FormData, key: string) {
 function getOptionalInteger(formData: FormData, key: string) {
   const value = getOptionalNumber(formData, key);
   return value === null ? null : Math.floor(value);
+}
+
+function normalizeKeyPart(value: string) {
+  return value
+    .trim()
+    .toLocaleLowerCase("sv")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function seedIdentity(crop: string, variety: string) {
+  return `${normalizeKeyPart(crop)}::${normalizeKeyPart(variety)}`;
 }
 
 async function getActiveWorkspaceOrRedirect() {
@@ -245,6 +287,92 @@ function readStockValues(formData: FormData, personalSeedId: string, crop: strin
     supplier: getFormString(formData, "supplier"),
     notes: getFormString(formData, "notes"),
   };
+}
+
+type ImportedInventoryRow = {
+  crop: string;
+  variety: string;
+  family: string;
+  latinFamily: string;
+  method: string;
+  forsaddStart: number | null;
+  forsaddEnd: number | null;
+  transplantStart: number | null;
+  transplantEnd: number | null;
+  directStart: number | null;
+  directEnd: number | null;
+  harvestStart: number | null;
+  harvestEnd: number | null;
+  cultureTime: string;
+  spacing: string;
+  rowSpacing: string;
+  seedPer75: number | null;
+  seedPerM2: number | null;
+  quantity: number;
+  purchaseYear: number | null;
+  expirationYear: number | null;
+  supplier: string;
+  notes: string;
+};
+
+function parseImportedNumber(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const parsed = Number(raw.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseImportedInteger(value: unknown) {
+  const parsed = parseImportedNumber(value);
+  return parsed === null ? null : Math.floor(parsed);
+}
+
+function parseImportedRows(formData: FormData): ImportedInventoryRow[] {
+  const payload = getFormString(formData, "rows");
+  if (!payload) {
+    redirect("/inventory?error=Ingen importfil valdes");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    redirect("/inventory?error=Importfilen kunde inte läsas");
+  }
+
+  if (!Array.isArray(parsed)) {
+    redirect("/inventory?error=Importfilen har fel format");
+  }
+
+  return parsed
+    .map((row) => (typeof row === "object" && row ? row as Record<string, unknown> : null))
+    .filter((row): row is Record<string, unknown> => Boolean(row))
+    .map((row) => ({
+      crop: String(row.crop ?? "").trim(),
+      variety: String(row.variety ?? "").trim(),
+      family: String(row.family ?? "").trim(),
+      latinFamily: String(row.latinFamily ?? "").trim(),
+      method: String(row.method ?? "").trim(),
+      forsaddStart: parseImportedInteger(row.forsaddStart),
+      forsaddEnd: parseImportedInteger(row.forsaddEnd),
+      transplantStart: parseImportedInteger(row.transplantStart),
+      transplantEnd: parseImportedInteger(row.transplantEnd),
+      directStart: parseImportedInteger(row.directStart),
+      directEnd: parseImportedInteger(row.directEnd),
+      harvestStart: parseImportedInteger(row.harvestStart),
+      harvestEnd: parseImportedInteger(row.harvestEnd),
+      cultureTime: String(row.cultureTime ?? "").trim(),
+      spacing: String(row.spacing ?? "").trim(),
+      rowSpacing: String(row.rowSpacing ?? "").trim(),
+      seedPer75: parseImportedNumber(row.seedPer75),
+      seedPerM2: parseImportedNumber(row.seedPerM2),
+      quantity: Math.max(0, Math.floor(parseImportedNumber(row.quantity) ?? 0)),
+      purchaseYear: parseImportedInteger(row.purchaseYear),
+      expirationYear: parseImportedInteger(row.expirationYear),
+      supplier: String(row.supplier ?? "").trim(),
+      notes: String(row.notes ?? "").trim(),
+    }))
+    .filter((row) => row.crop);
 }
 
 export async function saveInventorySeed(formData: FormData) {
@@ -390,6 +518,128 @@ export async function deleteSeedStockBatch(formData: FormData) {
 
   if (error) {
     redirect(`/inventory?error=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidateInventoryDependents();
+  redirect("/inventory");
+}
+
+export async function importInventorySeeds(formData: FormData) {
+  const workspace = await getActiveWorkspaceOrRedirect();
+  const rows = parseImportedRows(formData);
+
+  if (rows.length === 0) {
+    redirect("/inventory?error=Importfilen innehöll inga frörader");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const seedListClient = supabase as unknown as PersonalSeedListClient;
+  const stockListClient = supabase as unknown as SeedStockListClient;
+  const seedWriteClient = supabase as unknown as PersonalSeedWriteClient;
+  const stockWriteClient = supabase as unknown as SeedStockSaveClient;
+
+  const [{ data: existingSeeds, error: seedsError }, { data: existingStock, error: stockError }] = await Promise.all([
+    seedListClient.from("personal_seeds").select("id, crop, variety, schedule").eq("workspace_id", workspace.id),
+    stockListClient.from("seed_stock_batches").select("id, personal_seed_id").eq("workspace_id", workspace.id),
+  ]);
+
+  if (seedsError) {
+    redirect(`/inventory?error=${encodeURIComponent(seedsError.message)}`);
+  }
+
+  if (stockError) {
+    redirect(`/inventory?error=${encodeURIComponent(stockError.message)}`);
+  }
+
+  const existingSeedMap = new Map(
+    (existingSeeds ?? []).map((seed) => [seedIdentity(seed.crop, seed.variety), seed]),
+  );
+  const existingStockMap = new Map(
+    (existingStock ?? [])
+      .filter((batch) => batch.personal_seed_id)
+      .map((batch) => [batch.personal_seed_id as string, batch]),
+  );
+
+  for (const row of rows) {
+    const identity = seedIdentity(row.crop, row.variety);
+    const existingSeed = existingSeedMap.get(identity) ?? null;
+    const schedule = {
+      forsaddStart: row.forsaddStart,
+      forsaddEnd: row.forsaddEnd,
+      transplantStart: row.transplantStart,
+      transplantEnd: row.transplantEnd,
+      directStart: row.directStart,
+      directEnd: row.directEnd,
+      harvestStart: row.harvestStart,
+      harvestEnd: row.harvestEnd,
+    } satisfies Json;
+
+    const seedValues: PersonalSeedWriteValues = {
+      workspace_id: workspace.id,
+      template_id: null,
+      family: row.family,
+      latin_family: row.latinFamily,
+      crop: row.crop,
+      variety: row.variety,
+      method: row.method,
+      schedule,
+      culture_time: row.cultureTime,
+      spacing: row.spacing,
+      row_spacing: row.rowSpacing,
+      seed_per_75: row.seedPer75,
+      seed_per_m2: row.seedPerM2,
+      expiration_year: row.expirationYear,
+      notes: row.notes,
+    };
+
+    const seedResult = existingSeed
+      ? await seedWriteClient
+          .from("personal_seeds")
+          .update(seedValues)
+          .eq("workspace_id", workspace.id)
+          .eq("id", existingSeed.id)
+          .select("id")
+          .single()
+      : await seedWriteClient
+          .from("personal_seeds")
+          .insert(seedValues)
+          .select("id")
+          .single();
+
+    if (seedResult.error || !seedResult.data) {
+      redirect(`/inventory?error=${encodeURIComponent(seedResult.error?.message ?? "Kunde inte importera frö")}`);
+    }
+
+    const personalSeedId = seedResult.data.id;
+    const existingBatch = existingStockMap.get(personalSeedId) ?? null;
+    const stockValues = {
+      personal_seed_id: personalSeedId,
+      name: [row.crop, row.variety].filter(Boolean).join(" - "),
+      crop: row.crop,
+      variety: row.variety,
+      quantity: row.quantity,
+      purchase_year: row.purchaseYear,
+      expiration_year: row.expirationYear,
+      supplier: row.supplier,
+      notes: row.notes,
+    };
+
+    const stockResult = existingBatch
+      ? await stockWriteClient
+          .from("seed_stock_batches")
+          .update(stockValues)
+          .eq("workspace_id", workspace.id)
+          .eq("id", existingBatch.id)
+      : await stockWriteClient
+          .from("seed_stock_batches")
+          .insert({
+            workspace_id: workspace.id,
+            ...stockValues,
+          });
+
+    if (stockResult.error) {
+      redirect(`/inventory?error=${encodeURIComponent(stockResult.error.message)}`);
+    }
   }
 
   revalidateInventoryDependents();

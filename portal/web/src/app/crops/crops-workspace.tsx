@@ -496,6 +496,7 @@ export function CropsWorkspace({
       <dialog className="portal-dialog planning-dialog" ref={dialogRef}>
         <CropCreateForm
           action={action}
+          crops={crops}
           fields={fields}
           onCancel={() => dialogRef.current?.close()}
           personalSeeds={personalSeeds}

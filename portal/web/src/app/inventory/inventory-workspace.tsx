@@ -11,6 +11,7 @@ type InventoryWorkspaceProps = {
   error?: string;
   saveInventorySeedAction: (formData: FormData) => void | Promise<void>;
   deleteInventorySeedAction: (formData: FormData) => void | Promise<void>;
+  importInventorySeedsAction: (formData: FormData) => void | Promise<void>;
 };
 
 type SeedStockRow = {
@@ -41,13 +42,11 @@ type SortKey =
   | "variety"
   | "family"
   | "method"
-  | "forsadd"
-  | "direct"
-  | "harvest"
-  | "spacing"
-  | "rowSpacing"
   | "quantity"
-  | "expirationYear";
+  | "purchaseYear"
+  | "expirationYear"
+  | "supplier"
+  | "notes";
 
 const FAMILY_OPTIONS = [
   "Flockblommiga",
@@ -165,15 +164,138 @@ function getRows(personalSeeds: PersonalSeedRow[], stockBatches: SeedStockBatchR
 }
 
 function getSortValue(row: SeedStockRow, key: SortKey) {
-  if (key === "forsadd") return row.schedule.forsaddStart ?? 999;
-  if (key === "direct") return row.schedule.directStart ?? 999;
-  if (key === "harvest") return row.schedule.harvestStart ?? 999;
   return row[key] ?? "";
 }
 
 function isExpired(row: SeedStockRow) {
   const currentYear = new Date().getFullYear();
   return Boolean(row.expirationYear && row.expirationYear < currentYear);
+}
+
+function csvEscape(value: string | number | null | undefined) {
+  const text = String(value ?? "");
+  if (/[;"\n]/.test(text)) {
+    return `"${text.replaceAll("\"", "\"\"")}"`;
+  }
+  return text;
+}
+
+function rowsToCsv(rows: SeedStockRow[]) {
+  const headers = [
+    "crop",
+    "variety",
+    "family",
+    "latinFamily",
+    "method",
+    "forsaddStart",
+    "forsaddEnd",
+    "transplantStart",
+    "transplantEnd",
+    "directStart",
+    "directEnd",
+    "harvestStart",
+    "harvestEnd",
+    "cultureTime",
+    "spacing",
+    "rowSpacing",
+    "seedPer75",
+    "seedPerM2",
+    "quantity",
+    "purchaseYear",
+    "expirationYear",
+    "supplier",
+    "notes",
+  ] as const;
+
+  return [
+    headers.join(";"),
+    ...rows.map((row) => [
+      row.crop,
+      row.variety,
+      row.family,
+      row.latinFamily,
+      row.method,
+      row.schedule.forsaddStart,
+      row.schedule.forsaddEnd,
+      row.schedule.transplantStart,
+      row.schedule.transplantEnd,
+      row.schedule.directStart,
+      row.schedule.directEnd,
+      row.schedule.harvestStart,
+      row.schedule.harvestEnd,
+      row.cultureTime,
+      row.spacing,
+      row.rowSpacing,
+      row.seedPer75,
+      row.seedPerM2,
+      row.quantity,
+      row.purchaseYear,
+      row.expirationYear,
+      row.supplier,
+      row.notes,
+    ].map(csvEscape).join(";")),
+  ].join("\n");
+}
+
+function downloadFile(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function parseCsvLine(line: string) {
+  const values: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+
+    if (char === "\"") {
+      if (inQuotes && next === "\"") {
+        current += "\"";
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ";" && !inQuotes) {
+      values.push(current);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current);
+  return values;
+}
+
+function csvToImportRows(content: string) {
+  const lines = content
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean);
+
+  if (lines.length < 2) return [];
+
+  const headers = parseCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line);
+    return headers.reduce<Record<string, string>>((row, header, index) => {
+      row[header] = values[index] ?? "";
+      return row;
+    }, {});
+  });
 }
 
 export function InventoryWorkspace({
@@ -183,8 +305,12 @@ export function InventoryWorkspace({
   error,
   saveInventorySeedAction,
   deleteInventorySeedAction,
+  importInventorySeedsAction,
 }: InventoryWorkspaceProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const importFormRef = useRef<HTMLFormElement>(null);
+  const importRowsRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"all" | "stocked">("all");
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>({ key: "crop", direction: "asc" });
@@ -245,13 +371,38 @@ export function InventoryWorkspace({
     setSelectedTemplateId("");
   }
 
+  function exportSeeds() {
+    const filename = `mina-froer-${new Date().toISOString().slice(0, 10)}.csv`;
+    downloadFile(filename, rowsToCsv(rows), "text/csv;charset=utf-8");
+  }
+
+  async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const content = await file.text();
+    const parsedRows = csvToImportRows(content);
+
+    if (parsedRows.length === 0) {
+      alert("Importfilen innehöll inga frörader.");
+      event.target.value = "";
+      return;
+    }
+
+    if (importRowsRef.current && importFormRef.current) {
+      importRowsRef.current.value = JSON.stringify(parsedRows);
+      importFormRef.current.requestSubmit();
+    }
+
+    event.target.value = "";
+  }
+
   return (
     <section className="inventory-workspace">
       <section className="surface inventory-surface">
         <div className="section-head inventory-head">
           <div>
-            <p className="section-kicker">Personlig databas</p>
-            <h3>Frölista</h3>
+            <h3>Mina fröer</h3>
           </div>
         </div>
 
@@ -265,8 +416,24 @@ export function InventoryWorkspace({
             </button>
           </div>
           <div className="toolbar-row inventory-toolbar">
-            <button className="button-primary" type="button" onClick={() => openDialog(null)}>
+            <form action={importInventorySeedsAction} ref={importFormRef}>
+              <input name="rows" ref={importRowsRef} type="hidden" />
+            </form>
+            <input
+              accept=".csv,text/csv"
+              className="sr-only"
+              onChange={handleImportFile}
+              ref={importInputRef}
+              type="file"
+            />
+            <button className="button-primary inventory-toolbar__primary" type="button" onClick={() => openDialog(null)}>
               Lägg till frö
+            </button>
+            <button className="button-secondary" type="button" onClick={() => importInputRef.current?.click()}>
+              Importera mina fröer
+            </button>
+            <button className="button-secondary" type="button" onClick={exportSeeds}>
+              Exportera mina fröer
             </button>
             <label className="toolbar-search">
               <input
@@ -289,13 +456,11 @@ export function InventoryWorkspace({
                 <th><button type="button" onClick={() => setSortKey("variety")}>{sortLabel("Sort", "variety")}</button></th>
                 <th><button type="button" onClick={() => setSortKey("family")}>{sortLabel("Familj", "family")}</button></th>
                 <th><button type="button" onClick={() => setSortKey("method")}>{sortLabel("Metod", "method")}</button></th>
-                <th><button type="button" onClick={() => setSortKey("forsadd")}>{sortLabel("Försådd", "forsadd")}</button></th>
-                <th><button type="button" onClick={() => setSortKey("direct")}>{sortLabel("Direktsådd", "direct")}</button></th>
-                <th><button type="button" onClick={() => setSortKey("harvest")}>{sortLabel("Skörd", "harvest")}</button></th>
-                <th><button type="button" onClick={() => setSortKey("spacing")}>{sortLabel("Plantavstånd", "spacing")}</button></th>
-                <th><button type="button" onClick={() => setSortKey("rowSpacing")}>{sortLabel("Radavstånd", "rowSpacing")}</button></th>
                 <th><button type="button" onClick={() => setSortKey("quantity")}>{sortLabel("Antal", "quantity")}</button></th>
+                <th><button type="button" onClick={() => setSortKey("purchaseYear")}>{sortLabel("Inköpsår", "purchaseYear")}</button></th>
                 <th><button type="button" onClick={() => setSortKey("expirationYear")}>{sortLabel("Bäst före", "expirationYear")}</button></th>
+                <th><button type="button" onClick={() => setSortKey("supplier")}>{sortLabel("Leverantör", "supplier")}</button></th>
+                <th><button type="button" onClick={() => setSortKey("notes")}>{sortLabel("Anteckningar", "notes")}</button></th>
               </tr>
             </thead>
             <tbody>
@@ -310,18 +475,16 @@ export function InventoryWorkspace({
                     <td>{row.variety || "-"}</td>
                     <td>{row.family || "-"}</td>
                     <td>{row.method || "-"}</td>
-                    <td>{formatRange(row.schedule.forsaddStart, row.schedule.forsaddEnd)}</td>
-                    <td>{formatRange(row.schedule.directStart, row.schedule.directEnd)}</td>
-                    <td>{formatRange(row.schedule.harvestStart, row.schedule.harvestEnd)}</td>
-                    <td>{row.spacing || "-"}</td>
-                    <td>{row.rowSpacing || "-"}</td>
                     <td>{row.quantity}</td>
+                    <td>{row.purchaseYear || "-"}</td>
                     <td className={isExpired(row) ? "seed-stock-cell--expired" : ""}>{row.expirationYear || "-"}</td>
+                    <td>{row.supplier || "-"}</td>
+                    <td className="seed-cell--notes">{row.notes || "-"}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td className="harvest-empty" colSpan={11}>
+                  <td className="harvest-empty" colSpan={9}>
                     {view === "stocked" ? "Du har inga fröer i lager ännu." : "Du har inga fröer i Mina fröer ännu."}
                   </td>
                 </tr>
@@ -338,14 +501,14 @@ export function InventoryWorkspace({
           key={`${selectedStock?.id ?? selectedSeed?.id ?? "new"}-${selectedTemplateId}-${dialogMode}`}
           onSubmit={closeDialog}
         >
+          <button className="icon-button inventory-dialog-close" type="button" onClick={closeDialog} aria-label="Stäng">
+            ×
+          </button>
           <input name="stockId" type="hidden" value={selectedStock?.id ?? ""} />
           <input name="personalSeedId" type="hidden" value={selectedSeed?.id ?? ""} />
           <input name="templateId" type="hidden" value={selectedSeed?.templateId ?? selectedTemplate?.id ?? ""} />
 
           <aside className="inventory-seed-visual">
-            <button className="icon-button planning-close" type="button" onClick={closeDialog} aria-label="Stäng">
-              ×
-            </button>
             <div className="inventory-family-visual">
               {familyImage ? <span style={{ backgroundImage: `url(${familyImage})` }} /> : <strong>{formSeed?.family ? formSeed.family.slice(0, 1) : "?"}</strong>}
             </div>
@@ -372,7 +535,6 @@ export function InventoryWorkspace({
           <section className="inventory-seed-main">
             <div className="dialog-head dialog-head--compact">
               <div>
-                <p className="section-kicker">Frödatabasen</p>
                 <h3>{selectedSeed ? "Redigera fröpost" : "Lägg till frö"}</h3>
               </div>
             </div>
