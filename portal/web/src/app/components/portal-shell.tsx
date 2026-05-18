@@ -194,9 +194,10 @@ export async function PortalShell({
       ? getWorkspacePreferences(activeWorkspace.id)
       : Promise.resolve({ activeYear: null, weatherLocation: null }),
   ]);
+  const isFieldsPage = activeHref === "/fields";
 
   return (
-    <main className="min-h-screen">
+    <main className={`min-h-screen ${isFieldsPage ? "fields-page-frame" : ""}`}>
       <div className="app-shell">
         <aside className="sidebar">
           <Link href="/" className="brand-block">
@@ -238,7 +239,7 @@ export async function PortalShell({
           </form>
         </aside>
 
-        <section className="content">
+        <section className={`content ${isFieldsPage ? "content--fields" : ""}`}>
           {title ? (
             <header className="topbar">
               <div className="topbar-main">

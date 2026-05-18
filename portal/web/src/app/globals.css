@@ -285,6 +285,8 @@ body[data-theme="dark"] {
 
 .portal-fields-layout {
   align-items: start;
+  height: 100%;
+  min-height: 0;
 }
 
 .portal-fields-head {
@@ -339,11 +341,10 @@ body[data-theme="dark"] {
 .portal-field-map {
   position: relative;
   min-height: 360px;
-  height: clamp(360px, calc(100vh - 20rem), 680px);
+  height: clamp(430px, calc(100vh - 22rem), 640px);
   max-width: 100%;
   margin-top: 1rem;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: auto;
   border: 1px solid rgba(36, 49, 40, 0.08);
   border-radius: 30px;
   cursor: grab;
@@ -473,9 +474,7 @@ body[data-theme="dark"] {
 .portal-field-map__canvas {
   position: relative;
   min-width: 100%;
-  min-height: 520px;
-  width: 100%;
-  height: 1100px;
+  min-height: 100%;
 }
 
 .portal-field-plot-link {
@@ -503,13 +502,13 @@ body[data-theme="dark"] {
   position: relative;
   display: grid;
   height: 100%;
-  align-content: start;
-  gap: 0.45rem;
+  place-items: center;
   overflow: hidden;
-  border: 1px solid rgba(47, 107, 79, 0.28);
+  border: 2px solid color-mix(in srgb, var(--section-color, #6eb45d) 46%, rgba(120, 85, 52, 0.4));
   border-radius: 10px;
   padding: 0.75rem;
-  background: transparent;
+  background:
+    linear-gradient(180deg, rgba(244, 234, 216, 0.96), rgba(229, 214, 191, 0.94));
   box-shadow: 0 6px 16px rgba(23, 51, 49, 0.08);
 }
 
@@ -518,8 +517,8 @@ body[data-theme="dark"] {
   position: absolute;
   top: 0.45rem;
   left: 0.45rem;
-  width: 0.72rem;
-  height: 0.72rem;
+  width: 0.85rem;
+  height: 0.85rem;
   border-radius: 999px;
   background: var(--section-color, #6eb45d);
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55);
@@ -535,13 +534,53 @@ body[data-theme="dark"] {
 }
 
 .portal-field-plot__content {
-  transform: rotate(var(--content-rotation, 0deg));
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%) rotate(var(--content-rotation, 0deg));
   transform-origin: center center;
+  width: auto;
+  max-width: min(18rem, max(2.4rem, calc(var(--plot-visual-width, var(--plot-width, 180px)) - 1.2rem)));
+  min-width: 0;
+}
+
+.portal-field-plot__content > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(116, 82, 55, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 253, 247, 0.92);
+  color: #22433b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0.38rem 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 5px 12px rgba(61, 43, 28, 0.08);
+}
+
+.portal-field-plot__content.is-vertical-label {
+  transform: translate(-50%, -50%) rotate(calc(var(--content-rotation, 0deg) - 90deg));
+  max-width: min(18rem, max(2.4rem, calc(var(--plot-visual-height, var(--plot-height, 260px)) - 1.2rem)));
 }
 
 .portal-field-plot--bed {
-  border-color: rgba(59, 96, 94, 0.32);
+  border-color: #8f694b;
   border-radius: 10px;
+  background:
+    linear-gradient(180deg, #bd9a75 0%, #a77f5c 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 248, 235, 0.28),
+    0 8px 18px rgba(68, 48, 31, 0.16);
 }
 
 .portal-field-plot--greenhouse {
@@ -575,6 +614,7 @@ body[data-theme="dark"] {
   color: var(--foreground);
   margin: auto;
   padding: 0;
+  overflow: hidden;
 }
 
 .portal-dialog::backdrop {
@@ -586,7 +626,8 @@ body[data-theme="dark"] {
   display: grid;
   gap: 1rem;
   max-height: min(88vh, 860px);
-  overflow-x: clip;
+  width: 100%;
+  overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 28px;
@@ -675,6 +716,7 @@ body[data-theme="dark"] {
 
 .portal-section-chips {
   min-width: 0;
+  overflow-x: hidden;
 }
 
 .portal-section-chips label {
@@ -2064,6 +2106,9 @@ body[data-theme="dark"] {
 .portal-bed-list {
   display: grid;
   gap: 0.75rem;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.25rem;
 }
 
 .portal-bed-section {
@@ -2221,7 +2266,13 @@ body[data-theme="dark"] {
   position: sticky;
   top: 1rem;
   max-height: calc(100vh - 8rem);
-  overflow: auto;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.portal-fields-sidebar {
+  min-height: 0;
 }
 
 .portal-fields-sidebar-head {
@@ -2237,6 +2288,36 @@ body[data-theme="dark"] {
   font-size: 0.74rem;
   line-height: 1.35;
   text-align: right;
+}
+
+@media (min-width: 1280px) {
+  .portal-fields-layout {
+    height: calc(100vh - 6.5rem);
+    max-height: none;
+    overflow: hidden;
+  }
+
+  .content--fields .portal-fields-layout {
+    height: 100%;
+  }
+
+  .portal-fields-surface,
+  .portal-fields-sidebar {
+    min-height: 0;
+  }
+
+  .portal-fields-surface {
+    display: grid;
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .portal-field-map {
+    min-height: 0;
+    height: 100%;
+    margin-top: 0;
+    overflow: auto;
+  }
 }
 
 .inventory-workspace {
@@ -3046,6 +3127,12 @@ html {
   background: var(--background);
 }
 
+html:has(.fields-page-frame),
+body:has(.fields-page-frame) {
+  height: 100dvh;
+  overflow: hidden;
+}
+
 body {
   min-width: 320px;
   background:
@@ -3295,6 +3382,31 @@ a {
 .content {
   min-width: 0;
   padding: 1.85rem clamp(1.25rem, 2.6vw, 2rem) 2.25rem;
+}
+
+.fields-page-frame {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.fields-page-frame .app-shell {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.content--fields {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 1.35rem;
+  padding-bottom: 1.15rem;
+}
+
+.content--fields .topbar {
+  margin-bottom: 0.85rem;
 }
 
 .topbar {

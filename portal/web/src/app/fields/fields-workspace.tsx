@@ -73,14 +73,22 @@ function getFieldSize(field: FieldRow) {
   };
 }
 
-function getFieldStyle(field: FieldRow, placement: Placement, zoom: number): CSSProperties {
+function getFieldStyle(field: FieldRow, placement: Placement, zoom: number, offset = { x: 0, y: 0 }): CSSProperties {
   const size = getFieldSize(field);
+  const normalizedRotation = Math.abs(placement.rotationDeg % 180);
+  const isSideways = normalizedRotation > 45 && normalizedRotation < 135;
+  const visualWidth = (isSideways ? size.height : size.width) * zoom;
+  const visualHeight = (isSideways ? size.width : size.height) * zoom;
 
   return {
     ["--content-rotation" as string]: `${-placement.rotationDeg}deg`,
+    ["--plot-height" as string]: `${size.height * zoom}px`,
+    ["--plot-visual-height" as string]: `${visualHeight}px`,
+    ["--plot-visual-width" as string]: `${visualWidth}px`,
+    ["--plot-width" as string]: `${size.width * zoom}px`,
     height: `${size.height * zoom}px`,
-    left: `${placement.x * zoom}px`,
-    top: `${placement.y * zoom}px`,
+    left: `${(placement.x + offset.x) * zoom}px`,
+    top: `${(placement.y + offset.y) * zoom}px`,
     transform: `rotate(${placement.rotationDeg}deg)`,
     transformOrigin: "center center",
     width: `${size.width * zoom}px`,
@@ -116,6 +124,68 @@ function getSectionColor(sectionId: string | null, sections: SectionRow[]) {
   if (!sectionId) return "#dfb14f";
   const sectionIndex = sections.findIndex((section) => section.id === sectionId);
   return sectionPalette[((sectionIndex >= 0 ? sectionIndex : 0) % sectionPalette.length)];
+}
+
+function shouldRotateFieldLabel(field: FieldRow, placement: Placement, zoom: number) {
+  const size = getFieldSize(field);
+  const normalizedRotation = Math.abs(placement.rotationDeg % 180);
+  const isSideways = normalizedRotation > 45 && normalizedRotation < 135;
+  const visualWidth = (isSideways ? size.height : size.width) * zoom;
+  const visualHeight = (isSideways ? size.width : size.height) * zoom;
+  const estimatedLabelWidth = Math.max(field.name.length * 8 + 34, 58);
+
+  return visualWidth < estimatedLabelWidth && visualHeight > visualWidth;
+}
+
+function getRotatedBounds(field: FieldRow, placement: Placement) {
+  const size = getFieldSize(field);
+  const radians = (placement.rotationDeg * Math.PI) / 180;
+  const rotatedWidth = Math.abs(size.width * Math.cos(radians)) + Math.abs(size.height * Math.sin(radians));
+  const rotatedHeight = Math.abs(size.width * Math.sin(radians)) + Math.abs(size.height * Math.cos(radians));
+
+  return {
+    maxX: placement.x + size.width / 2 + rotatedWidth / 2,
+    maxY: placement.y + size.height / 2 + rotatedHeight / 2,
+    minX: placement.x + size.width / 2 - rotatedWidth / 2,
+    minY: placement.y + size.height / 2 - rotatedHeight / 2,
+  };
+}
+
+function getCanvasOffset(bounds: { minX: number; minY: number }) {
+  return {
+    x: Math.max(0, 48 - bounds.minX),
+    y: Math.max(0, 48 - bounds.minY),
+  };
+}
+
+function getGardenBounds(fields: FieldRow[], placements: Record<string, Placement>) {
+  return fields.reduce(
+    (currentBounds, field, index) => {
+      const placement = placements[field.id] ?? getInitialPlacement(field, index);
+      const fieldBounds = getRotatedBounds(field, placement);
+      return {
+        maxX: Math.max(currentBounds.maxX, fieldBounds.maxX),
+        maxY: Math.max(currentBounds.maxY, fieldBounds.maxY),
+        minX: Math.min(currentBounds.minX, fieldBounds.minX),
+        minY: Math.min(currentBounds.minY, fieldBounds.minY),
+      };
+    },
+    { maxX: 0, maxY: 0, minX: 0, minY: 0 },
+  );
+}
+
+function clampZoom(nextZoom: number) {
+  return Math.min(Math.max(nextZoom, 0.05), 1.75);
+}
+
+function getFitZoom(bounds: ReturnType<typeof getGardenBounds>, viewportWidth: number, viewportHeight: number) {
+  const padding = 96;
+  const availableWidth = Math.max(viewportWidth - padding, 1);
+  const availableHeight = Math.max(viewportHeight - padding, 1);
+  const spanX = Math.max(bounds.maxX - bounds.minX, 1);
+  const spanY = Math.max(bounds.maxY - bounds.minY, 1);
+
+  return clampZoom(Math.min(availableWidth / spanX, availableHeight / spanY));
 }
 
 function FieldFormFields({
@@ -250,6 +320,13 @@ export function FieldsWorkspace({
     startX: number;
     startY: number;
   } | null>(null);
+  const mapPanRef = useRef<{
+    pointerId: number;
+    scrollLeft: number;
+    scrollTop: number;
+    startClientX: number;
+    startClientY: number;
+  } | null>(null);
 
   const selectedField = fields.find((field) => field.id === selectedFieldId) ?? fields[0] ?? null;
   const selectedSection = sections.find((section) => section.id === selectedSectionId) ?? sections[0] ?? null;
@@ -278,6 +355,21 @@ export function FieldsWorkspace({
   const selectedFieldSectionName = selectedField?.sectionId
     ? sections.find((section) => section.id === selectedField.sectionId)?.name ?? "Utan skifte"
     : "Utan skifte";
+  const mapCanvasMetrics = useMemo(() => {
+    if (fields.length === 0) {
+      return { height: 900, offsetX: 0, offsetY: 0, width: 1400 };
+    }
+
+    const bounds = getGardenBounds(fields, placements);
+    const offset = getCanvasOffset(bounds);
+
+    return {
+      height: Math.max(900, Math.ceil((bounds.maxY + offset.y + 120) * zoom)),
+      offsetX: offset.x,
+      offsetY: offset.y,
+      width: Math.max(1400, Math.ceil((bounds.maxX + offset.x + 120) * zoom)),
+    };
+  }, [fields, placements, zoom]);
   const selectedFieldStatus = selectedFieldCropSummary
     ? `Planerad för ${selectedFieldCropSummary}`
     : "Ingen gröda planerad ännu.";
@@ -312,6 +404,23 @@ export function FieldsWorkspace({
     return () => cancelAnimationFrame(frame);
   }, [fields.length]);
 
+  useEffect(() => {
+    const mapElement = mapRef.current;
+    if (!mapElement || fields.length === 0 || typeof ResizeObserver === "undefined") return;
+
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => fitGardenToView());
+    });
+    observer.observe(mapElement);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [fields.length]);
+
   function persistPlacement(fieldId: string, placement: Placement) {
     const formData = new FormData();
     formData.set("fieldId", fieldId);
@@ -336,7 +445,7 @@ export function FieldsWorkspace({
   }
 
   function updateZoom(nextZoom: number) {
-    setZoom(Math.min(Math.max(nextZoom, 0.5), 1.75));
+    setZoom(clampZoom(nextZoom));
   }
 
   function fitGardenToView() {
@@ -344,38 +453,22 @@ export function FieldsWorkspace({
       updateZoom(1);
       return;
     }
-    const bounds = fields.reduce(
-      (currentBounds, field, index) => {
-        const placement = placements[field.id] ?? getInitialPlacement(field, index);
-        const size = getFieldSize(field);
-        return {
-          maxX: Math.max(currentBounds.maxX, placement.x + size.width),
-          maxY: Math.max(currentBounds.maxY, placement.y + size.height),
-          minX: Math.min(currentBounds.minX, placement.x),
-          minY: Math.min(currentBounds.minY, placement.y),
-        };
-      },
-      { maxX: 1, maxY: 1, minX: Number.POSITIVE_INFINITY, minY: Number.POSITIVE_INFINITY },
-    );
-    const padding = 80;
+    const bounds = getGardenBounds(fields, placements);
+    const offset = getCanvasOffset(bounds);
     const spanX = Math.max(bounds.maxX - bounds.minX, 1);
     const spanY = Math.max(bounds.maxY - bounds.minY, 1);
-    const nextZoom = Math.min(
-      (mapRef.current.clientWidth - padding) / spanX,
-      (mapRef.current.clientHeight - padding) / spanY,
-      1.75,
-    );
+    const nextZoom = getFitZoom(bounds, mapRef.current.clientWidth, mapRef.current.clientHeight);
     updateZoom(nextZoom);
-    requestAnimationFrame(() => {
-      const scaledMinX = bounds.minX * nextZoom;
-      const scaledMinY = bounds.minY * nextZoom;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const scaledMinX = (bounds.minX + offset.x) * nextZoom;
+      const scaledMinY = (bounds.minY + offset.y) * nextZoom;
       const scaledSpanX = spanX * nextZoom;
       const scaledSpanY = spanY * nextZoom;
       mapRef.current?.scrollTo({
         left: Math.max(0, scaledMinX - (mapRef.current.clientWidth - scaledSpanX) / 2),
         top: Math.max(0, scaledMinY - (mapRef.current.clientHeight - scaledSpanY) / 2),
       });
-    });
+    }));
   }
 
   async function toggleFullscreen() {
@@ -446,6 +539,35 @@ export function FieldsWorkspace({
     }
   }
 
+  function handleMapPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest(".portal-field-plot-link")) return;
+
+    mapPanRef.current = {
+      pointerId: event.pointerId,
+      scrollLeft: event.currentTarget.scrollLeft,
+      scrollTop: event.currentTarget.scrollTop,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleMapPointerMove(event: PointerEvent<HTMLDivElement>) {
+    const pan = mapPanRef.current;
+    if (!pan || pan.pointerId !== event.pointerId) return;
+
+    event.currentTarget.scrollLeft = pan.scrollLeft - (event.clientX - pan.startClientX);
+    event.currentTarget.scrollTop = pan.scrollTop - (event.clientY - pan.startClientY);
+  }
+
+  function handleMapPointerUp(event: PointerEvent<HTMLDivElement>) {
+    if (mapPanRef.current?.pointerId !== event.pointerId) return;
+
+    mapPanRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
   function confirmDelete(event: FormEvent<HTMLFormElement>, label: string) {
     if (!window.confirm(`Ta bort ${label}?`)) {
       event.preventDefault();
@@ -500,16 +622,23 @@ export function FieldsWorkspace({
           {isPending ? <span className="text-xs text-[var(--ink-muted)]">Sparar placering...</span> : null}
         </div>
 
-        <div className="portal-field-map" ref={mapRef}>
+        <div
+          className="portal-field-map"
+          onPointerCancel={handleMapPointerUp}
+          onPointerDown={handleMapPointerDown}
+          onPointerMove={handleMapPointerMove}
+          onPointerUp={handleMapPointerUp}
+          ref={mapRef}
+        >
           {fields.length > 0 ? (
-            <div className="portal-field-map__canvas" style={{ height: `${1100 * zoom}px`, width: `${1600 * zoom}px` }}>
+            <div className="portal-field-map__canvas" style={{ height: mapCanvasMetrics.height, width: mapCanvasMetrics.width }}>
               {fields.map((field, index) => {
                 const placement = placements[field.id] ?? getInitialPlacement(field, index);
-                const cropSummary = summarizeFieldCrops(cropTitlesByFieldId.get(field.id) ?? []);
                 const isSelected = field.id === selectedField?.id;
                 const sectionColor = getSectionColor(field.sectionId, sections);
+                const rotateLabel = shouldRotateFieldLabel(field, placement, zoom);
                 const fieldStyle = {
-                  ...getFieldStyle(field, placement, zoom),
+                  ...getFieldStyle(field, placement, zoom, { x: mapCanvasMetrics.offsetX, y: mapCanvasMetrics.offsetY }),
                   ["--section-color" as string]: sectionColor,
                 } as CSSProperties;
                 return (
@@ -525,10 +654,9 @@ export function FieldsWorkspace({
                   >
                     <div className={getPlotClasses(field.type)}>
                       <span className="portal-field-plot__surface" aria-hidden="true" />
-                      <div className="portal-field-plot__content relative z-10 flex min-w-0 items-center justify-between gap-2">
-                        <span className="min-w-0 truncate rounded-full bg-white/75 px-2 py-1 text-xs font-semibold text-[var(--primary-strong)]">{field.name}</span>
+                      <div className={`portal-field-plot__content relative z-10 ${rotateLabel ? "is-vertical-label" : ""}`}>
+                        <span title={field.name}>{field.name}</span>
                       </div>
-                      {cropSummary ? <span className="portal-field-plot__content relative z-10 max-w-full truncate rounded-full bg-white/65 px-2 py-1 text-[0.72rem] text-[var(--ink-muted)]">{cropSummary}</span> : null}
                     </div>
                   </button>
                 );
@@ -539,7 +667,7 @@ export function FieldsWorkspace({
               <strong className="text-xl font-medium text-[var(--primary)]">Ingen odlingsyta än</strong>
             </div>
           )}
-          <span className="portal-field-map-note">Dra ytor för att flytta dem</span>
+          <span className="portal-field-map-note">Dra för att panorera kartan</span>
         </div>
       </section>
 
