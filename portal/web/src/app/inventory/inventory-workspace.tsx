@@ -308,6 +308,7 @@ export function InventoryWorkspace({
   importInventorySeedsAction,
 }: InventoryWorkspaceProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const helpDialogRef = useRef<HTMLDialogElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const importFormRef = useRef<HTMLFormElement>(null);
   const importRowsRef = useRef<HTMLInputElement>(null);
@@ -401,8 +402,16 @@ export function InventoryWorkspace({
     <section className="inventory-workspace">
       <section className="surface inventory-surface">
         <div className="section-head inventory-head">
-          <div>
+          <div className="section-head__title-row">
             <h3>Mina fröer</h3>
+            <button
+              aria-label="Hjälp om mina fröer"
+              className="help-button"
+              type="button"
+              onClick={() => helpDialogRef.current?.showModal()}
+            >
+              ?
+            </button>
           </div>
         </div>
 
@@ -493,6 +502,37 @@ export function InventoryWorkspace({
           </table>
         </div>
       </section>
+
+      <dialog className="portal-dialog" ref={helpDialogRef}>
+        <form className="portal-dialog__card portal-help-card" method="dialog">
+          <div className="portal-dialog__head">
+            <div>
+              <p className="section-kicker">Hjälp</p>
+              <h3>Mina fröer</h3>
+            </div>
+            <button aria-label="Stäng" className="icon-button" type="submit">
+              ×
+            </button>
+          </div>
+          <div className="portal-help-grid">
+            <article className="portal-help-item">
+              <strong>Din personliga fröbank</strong>
+              <p>Här samlar du egna sorter med familj, odlingssätt och grunddata som sedan kan användas vidare i planeringen.</p>
+            </article>
+            <article className="portal-help-item">
+              <strong>Lager och hållbarhet</strong>
+              <p>Visa alla fröer eller bara det du har i lager. Antal, inköpsår och bäst före hjälper dig att se vad som behöver användas eller fyllas på.</p>
+            </article>
+            <article className="portal-help-item">
+              <strong>Redigera, importera och exportera</strong>
+              <p>Klicka på en rad för att öppna fröposten. Du kan också importera och exportera Mina fröer för flytt, backup eller snabb uppdatering.</p>
+            </article>
+          </div>
+          <div className="form-actions">
+            <button className="button-primary" type="submit">Stäng</button>
+          </div>
+        </form>
+      </dialog>
 
       <dialog className="portal-dialog inventory-dialog inventory-dialog--wide" ref={dialogRef}>
         <form

@@ -74,6 +74,30 @@ type CropPlanUpdateClient = {
   };
 };
 
+type SeedStockUpsertValues = {
+  workspace_id?: string;
+  personal_seed_id: string | null;
+  name: string;
+  crop: string;
+  variety: string;
+  quantity: number;
+  purchase_year: number | null;
+  expiration_year: number | null;
+  supplier: string;
+  notes: string;
+};
+
+type SeedStockPurchaseClient = {
+  from(table: "seed_stock_batches"): {
+    insert(values: SeedStockUpsertValues & { workspace_id: string }): Promise<{ error: { message: string } | null }>;
+    update(values: SeedStockUpsertValues): {
+      eq(column: "workspace_id", value: string): {
+        eq(column: "id", value: string): Promise<{ error: { message: string } | null }>;
+      };
+    };
+  };
+};
+
 type CropFieldDeleteClient = {
   from(table: "crop_fields"): {
     delete(): {
@@ -88,6 +112,28 @@ type CropDeleteClient = {
       eq(column: "workspace_id", value: string): {
         eq(column: "id", value: string): Promise<{ error: { message: string } | null }>;
       };
+    };
+  };
+};
+
+type CropListClient = {
+  from(table: "crops"): {
+    select(columns: "id"): {
+      eq(column: "workspace_id", value: string): Promise<{
+        data: { id: string }[] | null;
+        error: { message: string } | null;
+      }>;
+    };
+    delete(): {
+      eq(column: "workspace_id", value: string): Promise<{ error: { message: string } | null }>;
+    };
+  };
+};
+
+type CropFieldBulkDeleteClient = {
+  from(table: "crop_fields"): {
+    delete(): {
+      in(column: "crop_id", values: string[]): Promise<{ error: { message: string } | null }>;
     };
   };
 };
@@ -112,6 +158,16 @@ type TaskDeleteClient = {
     delete(): {
       eq(column: "workspace_id", value: string): {
         eq(column: "crop_id", value: string): Promise<{ error: { message: string } | null }>;
+      };
+    };
+  };
+};
+
+type TaskBulkDeleteClient = {
+  from(table: "tasks"): {
+    delete(): {
+      eq(column: "workspace_id", value: string): {
+        in(column: "crop_id", values: string[]): Promise<{ error: { message: string } | null }>;
       };
     };
   };
@@ -908,6 +964,112 @@ export async function deleteCropAction(formData: FormData) {
 
   revalidatePath("/crops");
   revalidatePath("/tasks");
+  revalidatePath("/");
+  redirect("/crops");
+}
+
+export async function clearAllCropsAction() {
+  const workspace = await getActiveWorkspaceOrRedirect();
+  const supabase = await createSupabaseServerClient();
+  const cropListClient = supabase as unknown as CropListClient;
+  const cropFieldClient = supabase as unknown as CropFieldBulkDeleteClient;
+  const taskClient = supabase as unknown as TaskBulkDeleteClient;
+
+  const { data: cropRows, error: cropListError } = await cropListClient
+    .from("crops")
+    .select("id")
+    .eq("workspace_id", workspace.id);
+
+  if (cropListError) {
+    redirect(`/crops?error=${encodeURIComponent(cropListError.message)}`);
+  }
+
+  const cropIds = (cropRows ?? []).map((row) => row.id);
+
+  if (cropIds.length > 0) {
+    const { error: cropFieldError } = await cropFieldClient
+      .from("crop_fields")
+      .delete()
+      .in("crop_id", cropIds);
+
+    if (cropFieldError) {
+      redirect(`/crops?error=${encodeURIComponent(cropFieldError.message)}`);
+    }
+
+    const { error: taskDeleteError } = await taskClient
+      .from("tasks")
+      .delete()
+      .eq("workspace_id", workspace.id)
+      .in("crop_id", cropIds);
+
+    if (taskDeleteError) {
+      redirect(`/crops?error=${encodeURIComponent(taskDeleteError.message)}`);
+    }
+  }
+
+  const { error: cropDeleteError } = await cropListClient
+    .from("crops")
+    .delete()
+    .eq("workspace_id", workspace.id);
+
+  if (cropDeleteError) {
+    redirect(`/crops?error=${encodeURIComponent(cropDeleteError.message)}`);
+  }
+
+  revalidatePath("/crops");
+  revalidatePath("/tasks");
+  revalidatePath("/");
+  redirect("/crops");
+}
+
+export async function purchaseShoppingSeedsAction(formData: FormData) {
+  const workspace = await getActiveWorkspaceOrRedirect();
+  const supabase = await createSupabaseServerClient();
+  const stockClient = supabase as unknown as SeedStockPurchaseClient;
+
+  const personalSeedId = getFormString(formData, "personalSeedId") || null;
+  const stockId = getFormString(formData, "stockId");
+  const crop = getFormString(formData, "crop");
+  const variety = getFormString(formData, "variety");
+  const quantity = Math.max(0, Math.floor(getOptionalNumber(formData, "quantity") ?? 0));
+  const purchaseYear = new Date().getFullYear();
+
+  if (!personalSeedId) {
+    redirect("/crops?error=Köpet kan bara registreras för grödor som är kopplade till Mina fröer");
+  }
+
+  if (!crop || quantity <= 0) {
+    redirect("/crops?error=Ogiltigt köp");
+  }
+
+  const values: SeedStockUpsertValues = {
+    personal_seed_id: personalSeedId,
+    name: [crop, variety].filter(Boolean).join(" - "),
+    crop,
+    variety,
+    quantity,
+    purchase_year: purchaseYear,
+    expiration_year: null,
+    supplier: "",
+    notes: "",
+  };
+
+  const result = stockId
+    ? await stockClient
+        .from("seed_stock_batches")
+        .update(values)
+        .eq("workspace_id", workspace.id)
+        .eq("id", stockId)
+    : await stockClient
+        .from("seed_stock_batches")
+        .insert({ ...values, workspace_id: workspace.id });
+
+  if (result.error) {
+    redirect(`/crops?error=${encodeURIComponent(result.error.message)}`);
+  }
+
+  revalidatePath("/inventory");
+  revalidatePath("/crops");
   revalidatePath("/");
   redirect("/crops");
 }

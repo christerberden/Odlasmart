@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { ModulePage } from "@/app/components/module-page";
-import { createCrop, deleteCropAction, updateCropPlanAction, updateCropScheduleAction } from "@/app/crops/actions";
+import { clearAllCropsAction, createCrop, deleteCropAction, purchaseShoppingSeedsAction, updateCropPlanAction, updateCropScheduleAction } from "@/app/crops/actions";
+import { importInventorySeeds } from "@/app/inventory/actions";
 import { CropsWorkspace } from "@/app/crops/crops-workspace";
 import { getCurrentAuthState } from "@/lib/auth/workspaces";
 import { getCrops } from "@/lib/data/crops";
 import { getFields, getSections } from "@/lib/data/fields";
 import { getSeedStockBatches } from "@/lib/data/inventory";
+import { getWorkspacePreferences } from "@/lib/data/preferences";
 import { getPersonalSeeds, getSeedTemplateOptions } from "@/lib/data/seeds";
 import { getTasks } from "@/lib/data/tasks";
 
@@ -21,7 +23,7 @@ export default async function CropsPage({ searchParams }: CropsPageProps) {
     getCurrentAuthState(),
   ]);
   const activeWorkspace = authState.workspaces[0] ?? null;
-  const [personalSeeds, seedTemplates, fields, sections, crops, stockBatches, tasks] = activeWorkspace
+  const [personalSeeds, seedTemplates, fields, sections, crops, stockBatches, tasks, preferences] = activeWorkspace
     ? await Promise.all([
         getPersonalSeeds(activeWorkspace.id),
         getSeedTemplateOptions(),
@@ -30,8 +32,9 @@ export default async function CropsPage({ searchParams }: CropsPageProps) {
         getCrops(activeWorkspace.id),
         getSeedStockBatches(activeWorkspace.id),
         getTasks(activeWorkspace.id),
+        getWorkspacePreferences(activeWorkspace.id),
       ])
-    : [[], [], [], [], [], [], []];
+    : [[], [], [], [], [], [], [], { activeYear: null, frostWindow: null, weatherLocation: null }];
 
   return (
     <ModulePage href="/crops">
@@ -67,6 +70,10 @@ export default async function CropsPage({ searchParams }: CropsPageProps) {
           deleteCropAction={deleteCropAction}
           updateCropAction={updateCropPlanAction}
           updateScheduleAction={updateCropScheduleAction}
+          clearAllCropsAction={clearAllCropsAction}
+          importInventorySeedsAction={importInventorySeeds}
+          frostWindow={preferences.frostWindow}
+          purchaseShoppingSeedsAction={purchaseShoppingSeedsAction}
           workspaceName={activeWorkspace.name}
         />
       ) : null}

@@ -65,7 +65,22 @@ function normalizeFamily(family: string) {
 
 function getFamilyImage(family: string) {
   const key = normalizeFamily(family);
-  return key ? `/familjer/${key}.png` : "";
+  if (!key) {
+    return "";
+  }
+
+  if (key.includes("korg")) return "/familjer/korgblommiga.png";
+  if (key.includes("flock")) return "/familjer/flockblommiga.png";
+  if (key.includes("kal") || key.includes("kors") || key.includes("brassic")) return "/familjer/kalvaxter.png";
+  if (key.includes("mall")) return "/familjer/mallvaxter.png";
+  if (key.includes("lok")) return "/familjer/lokvaxter.png";
+  if (key.includes("art") || key.includes("balj")) return "/familjer/artvaxter.png";
+  if (key.includes("gurk")) return "/familjer/gurkvaxter.png";
+  if (key.includes("potatis") || key.includes("tomat") || key.includes("paprika")) return "/familjer/potatisvaxter.png";
+  if (key.includes("ort")) return "/familjer/ortvaxter.png";
+  if (key.includes("grongod") || key.includes("gronsod")) return "/familjer/grongodsling.png";
+
+  return `/familjer/${key}.png`;
 }
 
 function calculateSowingLayout({
@@ -523,14 +538,14 @@ export function CropCreateForm({
 
       <aside className="planning-form__sidebar">
         <div className="planning-form__visual">
-          {familyImage ? <span style={{ backgroundImage: `url(${familyImage})` }} /> : <strong>{selectedSeed?.family?.slice(0, 1) ?? "?"}</strong>}
+          {familyImage ? <img alt={selectedSeed?.family ?? "Växtfamilj"} src={familyImage} /> : <strong>{selectedSeed?.family?.slice(0, 1) ?? "?"}</strong>}
         </div>
 
         <div className="planning-form__summary">
           <h3>{selectedSeed?.crop || "Ny gröda"}</h3>
           <div className="planning-form__notes">
-            <span>{selectedFieldNote}</span>
-            <span>{rotationNote}</span>
+            <span className="planning-form__note planning-form__note--capacity">{selectedFieldNote}</span>
+            <span className="planning-form__note planning-form__note--rotation">{rotationNote}</span>
             {!selectedSeed && workspaceName ? <span>{workspaceName}</span> : null}
           </div>
         </div>
@@ -542,53 +557,55 @@ export function CropCreateForm({
         </div>
 
         <div className="planning-form__grid">
-          {sowModes.length > 1 ? (
-            <div className="planning-form__wide planning-mode-switcher-wrap">
-              <span>Lägg till som</span>
-              <div className="planning-mode-switcher" role="tablist" aria-label="Välj såsätt">
-                <button className={planningMode === "forsadd" ? "is-active" : ""} type="button" onClick={() => {
-                  setPlanningMode("forsadd");
-                  applyPlanningMode(selectedSeed, "forsadd");
-                }}>
-                  Från försådd
-                </button>
-                <button className={planningMode === "direktsadd" ? "is-active" : ""} type="button" onClick={() => {
-                  setPlanningMode("direktsadd");
-                  applyPlanningMode(selectedSeed, "direktsadd");
-                }}>
-                  Direktsådd
-                </button>
+          <div className={`planning-form__wide planning-form__top-row${sowModes.length > 1 ? " has-mode" : ""}`}>
+            {sowModes.length > 1 ? (
+              <div className="planning-mode-switcher-wrap">
+                <span>Lägg till som</span>
+                <div className="planning-mode-switcher" role="tablist" aria-label="Välj såsätt">
+                  <button className={planningMode === "forsadd" ? "is-active" : ""} type="button" onClick={() => {
+                    setPlanningMode("forsadd");
+                    applyPlanningMode(selectedSeed, "forsadd");
+                  }}>
+                    Från försådd
+                  </button>
+                  <button className={planningMode === "direktsadd" ? "is-active" : ""} type="button" onClick={() => {
+                    setPlanningMode("direktsadd");
+                    applyPlanningMode(selectedSeed, "direktsadd");
+                  }}>
+                    Direktsådd
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          <label>
-            Gröda
-            <select name="personalSeedId" onChange={(event) => handleSeedChange(event.target.value)} value={seedSourceId}>
-              <option value="">Välj gröda</option>
-              {personalSeeds.length > 0 ? (
-                <optgroup label="Mina fröer">
-                  {personalSeeds.map((seed) => (
-                    <option key={seed.id} value={`personal:${seed.id}`}>
+            <label>
+              Gröda
+              <select name="personalSeedId" onChange={(event) => handleSeedChange(event.target.value)} value={seedSourceId}>
+                <option value="">Välj gröda</option>
+                {personalSeeds.length > 0 ? (
+                  <optgroup label="Mina fröer">
+                    {personalSeeds.map((seed) => (
+                      <option key={seed.id} value={`personal:${seed.id}`}>
+                        {[seed.crop, seed.variety].filter(Boolean).join(" - ")}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                <optgroup label="Frödatabas">
+                  {seedTemplates.map((seed) => (
+                    <option key={seed.id} value={`template:${seed.id}`}>
                       {[seed.crop, seed.variety].filter(Boolean).join(" - ")}
                     </option>
                   ))}
                 </optgroup>
-              ) : null}
-              <optgroup label="Frödatabas">
-                {seedTemplates.map((seed) => (
-                  <option key={seed.id} value={`template:${seed.id}`}>
-                    {[seed.crop, seed.variety].filter(Boolean).join(" - ")}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
-          </label>
+              </select>
+            </label>
 
-          <label>
-            Sort / anteckning
-            <input onChange={(event) => setTitle(event.target.value)} placeholder="Sort eller egen anteckning" value={title} />
-          </label>
+            <label>
+              Sort / anteckning
+              <input onChange={(event) => setTitle(event.target.value)} placeholder="Sort eller egen anteckning" value={title} />
+            </label>
+          </div>
 
           <label className="planning-form__wide">
             Frö från lager

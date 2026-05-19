@@ -1,12 +1,13 @@
 "use client";
 
 import { startTransition, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { ChangeEvent, CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { CropCreateForm } from "@/app/crops/crop-create-form";
 import type { CropRow } from "@/lib/data/crops";
 import type { FieldRow, SectionRow } from "@/lib/data/fields";
 import type { SeedStockBatchRow } from "@/lib/data/inventory";
+import type { FrostWindow } from "@/lib/data/preferences";
 import type { PersonalSeedRow, SeedSchedule, SeedTemplateOption } from "@/lib/data/seeds";
 import type { TaskRow } from "@/lib/data/tasks";
 
@@ -20,7 +21,11 @@ type CropsWorkspaceProps = {
   seedTemplates: SeedTemplateOption[];
   stockBatches: SeedStockBatchRow[];
   tasks: TaskRow[];
+  clearAllCropsAction: () => void | Promise<void>;
   deleteCropAction: (formData: FormData) => void | Promise<void>;
+  frostWindow: FrostWindow | null;
+  importInventorySeedsAction: (formData: FormData) => void | Promise<void>;
+  purchaseShoppingSeedsAction: (formData: FormData) => void | Promise<void>;
   updateCropAction: (formData: FormData) => void | Promise<void>;
   updateScheduleAction: (formData: FormData) => void | Promise<void>;
   workspaceName: string;
@@ -35,18 +40,52 @@ type DragState = {
 } | null;
 
 const ACTIVITY_META = {
-  forsadd: { color: "#6f8fc8", label: "Försådd" },
-  direktsadd: { color: "#c58f45", label: "Direktsådd" },
-  utplantering: { color: "#5f9b71", label: "Utplantering" },
-  skord: { color: "#b96f5b", label: "Skörd" },
+  forsadd: { color: "#87a97d", icon: "presow", label: "Försådd" },
+  direktsadd: { color: "#c59a4e", icon: "directSow", label: "Direktsådd" },
+  utplantering: { color: "#5b91a2", icon: "transplantOut", label: "Utplantering" },
+  skord: { color: "#d16d58", icon: "harvestCrop", label: "Skörd" },
 } as const;
 
 const WEEKS = Array.from({ length: 52 }, (_, index) => index + 1);
+const DEFAULT_FROST_WINDOW: FrostWindow = {
+  lastSpringWeek: 20,
+  springRiskStartWeek: 17,
+  springRiskEndWeek: 20,
+  firstAutumnWeek: 43,
+  autumnRiskStartWeek: 39,
+  autumnRiskEndWeek: 42,
+  sourceLabel: "schablon",
+};
 const STATUS_OPTIONS = [
   { label: "Allt", value: "alla" },
   { label: "Ej klart", value: "open" },
   { label: "Klart", value: "done" },
 ] as const;
+
+type SeedExportRow = {
+  crop: string;
+  variety: string;
+  family: string;
+  method: string;
+  quantity: number;
+  purchaseYear: number | null;
+  expirationYear: number | null;
+  supplier: string;
+  notes: string;
+};
+
+type ShoppingRow = {
+  key: string;
+  crop: string;
+  title: string;
+  variety: string;
+  personalSeedId: string | null;
+  stockId: string | null;
+  family: string;
+  need: number;
+  stock: number;
+  purchase: number;
+};
 
 function formatArea(value: number | null | undefined) {
   if (value == null) {
@@ -54,6 +93,95 @@ function formatArea(value: number | null | undefined) {
   }
 
   return `${value.toLocaleString("sv-SE", { maximumFractionDigits: 1 })} m²`;
+}
+
+function csvEscape(value: string | number | null | undefined) {
+  const text = String(value ?? "");
+  if (/[;"\n]/.test(text)) {
+    return `"${text.replaceAll("\"", "\"\"")}"`;
+  }
+  return text;
+}
+
+function downloadFile(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function rowsToCsv(rows: SeedExportRow[]) {
+  const header = [
+    "Groda",
+    "Sort",
+    "Familj",
+    "Metod",
+    "Antal",
+    "Inkopsar",
+    "Bast fore",
+    "Leverantor",
+    "Anteckningar",
+  ];
+
+  const body = rows.map((row) => [
+    row.crop,
+    row.variety,
+    row.family,
+    row.method,
+    row.quantity,
+    row.purchaseYear,
+    row.expirationYear,
+    row.supplier,
+    row.notes,
+  ].map(csvEscape).join(";"));
+
+  return [header.join(";"), ...body].join("\n");
+}
+
+function csvToImportRows(content: string) {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length <= 1) {
+    return [];
+  }
+
+  return lines.slice(1).map((line) => {
+    const cells = line.match(/("([^"]|"")*"|[^;]+)/g)?.map((cell) => (
+      cell.startsWith("\"") && cell.endsWith("\"")
+        ? cell.slice(1, -1).replaceAll("\"\"", "\"")
+        : cell
+    )) ?? [];
+
+    return {
+      crop: cells[0] ?? "",
+      variety: cells[1] ?? "",
+      family: cells[2] ?? "",
+      method: cells[3] ?? "",
+      quantity: Number(cells[4] ?? 0) || 0,
+      purchaseYear: Number(cells[5] ?? 0) || null,
+      expirationYear: Number(cells[6] ?? 0) || null,
+      supplier: cells[7] ?? "",
+      notes: cells[8] ?? "",
+    };
+  }).filter((row) => row.crop);
+}
+
+function getActivityIconMarkup(icon: string) {
+  const icons: Record<string, string> = {
+    presow: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4.5 11V7.5L12 3l7.5 4.5V11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M6.5 10.5V19h11v-8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M12 7v7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="m9.5 11.5 2.5 2.8 2.5-2.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>',
+    directSow: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="m9.5 9.5 2.5 2.8 2.5-2.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M4 17.5h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="M7 20c1-.8 2-.8 3 0 .9-.8 2-.8 3 0 .9-.8 2-.8 4 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>',
+    transplantOut: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8"></circle><path d="M12 2.8v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="M12 18.2v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="m5.5 5.5 2.1 2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="m16.4 16.4 2.1 2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="M2.8 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="M18.2 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="m5.5 18.5 2.1-2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="m16.4 7.6 2.1-2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>',
+    harvestCrop: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 6c2.1-2.2 5.6-2 7.4.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="M11.5 8.5c3.9 0 6.8 2.8 6.8 6.2 0 3.2-2.6 5.8-6.2 5.8-3.7 0-6.4-2.5-6.4-5.9 0-3.8 2.8-6.1 5.8-6.1Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M11.8 4.2c-.2 1.8.2 3.1 1.3 4.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path><path d="M8.7 10.2c.8.5 1.6.7 2.5.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>',
+    shoppingCart: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5h2l2.1 9.5h8.8L19 8H7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><circle cx="10" cy="19" r="1.4" stroke="currentColor" stroke-width="1.8"></circle><circle cx="17" cy="19" r="1.4" stroke="currentColor" stroke-width="1.8"></circle></svg>',
+  };
+
+  return icons[icon] ?? icons.presow;
 }
 
 function getRange(start: number | null, end: number | null) {
@@ -211,6 +339,40 @@ function getIsoWeek(date = new Date()) {
   return Math.ceil((((current.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 }
 
+function getResolvedFrostWindow(frostWindow: FrostWindow | null) {
+  return frostWindow ?? DEFAULT_FROST_WINDOW;
+}
+
+function weekToPercentStart(week: number) {
+  return `${((week - 1) / 52) * 100}%`;
+}
+
+function weekToPercentWidth(startWeek: number, endWeek: number) {
+  return `${((endWeek - startWeek + 1) / 52) * 100}%`;
+}
+
+function getOverallOccupancy(crops: CropRow[], fields: FieldRow[]) {
+  const totalArea = getFieldAreaForCrops(crops, fields);
+  const weeklyArea = new Map<number, number>();
+
+  for (const crop of crops) {
+    const occupancyRange = getBedOccupancyRange(crop.schedule);
+
+    if (!occupancyRange) {
+      continue;
+    }
+
+    for (let week = occupancyRange.start; week <= occupancyRange.end; week += 1) {
+      weeklyArea.set(week, (weeklyArea.get(week) ?? 0) + (crop.areaM2 ?? 0));
+    }
+  }
+
+  return WEEKS.map((week) => {
+    const ratio = totalArea > 0 ? (weeklyArea.get(week) ?? 0) / totalArea : 0;
+    return { level: getOccupancyLevel(ratio), ratio, week };
+  });
+}
+
 function hasVisibleRange(crop: CropRow, view: TimelineView, activeTypes: Set<string>) {
   return getScheduleRanges(crop.schedule).some((item) => {
     if (!item.range) {
@@ -242,10 +404,14 @@ function getGroupedFields(fields: FieldRow[], sections: SectionRow[]) {
 
 export function CropsWorkspace({
   action,
+  clearAllCropsAction,
   crops,
   error,
   fields,
+  frostWindow,
+  importInventorySeedsAction,
   personalSeeds,
+  purchaseShoppingSeedsAction,
   sections,
   seedTemplates,
   stockBatches,
@@ -257,6 +423,11 @@ export function CropsWorkspace({
 }: CropsWorkspaceProps) {
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const helpDialogRef = useRef<HTMLDialogElement>(null);
+  const shoppingDialogRef = useRef<HTMLDialogElement>(null);
+  const importFormRef = useRef<HTMLFormElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const importRowsRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState<TimelineView>("crops");
   const [fieldFilter, setFieldFilter] = useState("alla");
   const [sectionFilter, setSectionFilter] = useState("alla");
@@ -267,6 +438,7 @@ export function CropsWorkspace({
   const [dragState, setDragState] = useState<DragState>(null);
   const [editingCrop, setEditingCrop] = useState<CropRow | null>(null);
   const currentWeek = getIsoWeek();
+  const resolvedFrostWindow = getResolvedFrostWindow(frostWindow);
 
   const filteredCrops = useMemo(() => {
     return crops
@@ -297,6 +469,124 @@ export function CropsWorkspace({
       .sort((a, b) => a.localeCompare(b, "sv"))
   ), [crops, personalSeeds, seedTemplates]);
   const totalArea = filteredCrops.reduce((sum, crop) => sum + (crop.areaM2 ?? 0), 0);
+  const occupancyWeeks = useMemo(() => getOverallOccupancy(filteredCrops, fields), [fields, filteredCrops]);
+  const shoppingRows = useMemo(() => {
+    const grouped = new Map<string, ShoppingRow>();
+
+    for (const crop of crops) {
+      const personalSeed = personalSeeds.find((seed) => seed.id === crop.personalSeedId) ?? null;
+      const family = getCropFamily(crop, personalSeeds, seedTemplates);
+      const cropField = crop.fields[0];
+      const stock = stockBatches.find((batch) => batch.id === cropField?.seedStockBatchId)
+        ?? stockBatches.find((batch) => batch.personalSeedId === crop.personalSeedId)
+        ?? null;
+      const variety = stock?.variety || crop.batchName || "";
+      const key = `${crop.personalSeedId ?? crop.title}::${variety}`;
+      const plannedSeeds = crop.fields.reduce((sum, field) => {
+        if (field.plannedSeedCount != null && field.plannedSeedCount > 0) {
+          return sum + field.plannedSeedCount;
+        }
+
+        const fallbackArea = field.plannedAreaM2 ?? crop.areaM2 ?? 0;
+        const seedPerM2 = personalSeed?.seedPerM2 ?? 0;
+        return sum + (fallbackArea > 0 && seedPerM2 > 0 ? Math.ceil(fallbackArea * seedPerM2) : 0);
+      }, 0);
+      const existing = grouped.get(key);
+
+      if (existing) {
+        existing.need += plannedSeeds;
+        existing.purchase = Math.max(existing.need - existing.stock, 0);
+        continue;
+      }
+
+      grouped.set(key, {
+        key,
+        crop: crop.title,
+        title: crop.title,
+        variety,
+        personalSeedId: crop.personalSeedId,
+        stockId: stock?.id ?? null,
+        family,
+        need: plannedSeeds,
+        stock: stock?.quantity ?? 0,
+        purchase: Math.max(plannedSeeds - (stock?.quantity ?? 0), 0),
+      });
+    }
+
+    return [...grouped.values()].sort((left, right) => left.title.localeCompare(right.title, "sv"));
+  }, [crops, personalSeeds, seedTemplates, stockBatches]);
+
+  function exportSeeds() {
+    const filename = `mina-froer-${new Date().toISOString().slice(0, 10)}.csv`;
+    const rows: SeedExportRow[] = personalSeeds.map((seed) => {
+      const stock = stockBatches.find((batch) => batch.personalSeedId === seed.id) ?? null;
+      return {
+        crop: seed.crop,
+        variety: stock?.variety || seed.variety,
+        family: seed.family,
+        method: seed.method,
+        quantity: stock?.quantity ?? 0,
+        purchaseYear: stock?.purchaseYear ?? null,
+        expirationYear: stock?.expirationYear ?? seed.expirationYear,
+        supplier: stock?.supplier ?? "",
+        notes: stock?.notes || seed.notes,
+      };
+    });
+
+    downloadFile(filename, rowsToCsv(rows), "text/csv;charset=utf-8");
+  }
+
+  function exportShoppingList() {
+    const rows = filteredCrops.map((crop) => {
+      const cropField = crop.fields[0];
+      const linkedBatch = stockBatches.find((batch) => batch.id === cropField?.seedStockBatchId) ?? null;
+      const plannedSeeds = cropField?.plannedSeedCount ?? 0;
+      const quantity = linkedBatch?.quantity ?? 0;
+
+      return {
+        Groda: crop.title,
+        Omgang: crop.batchName || "",
+        Badd: cropField?.fieldName ?? "Utan bädd",
+        Yta: crop.areaM2 ?? "",
+        PlaneradeFron: plannedSeeds,
+        "I lager": quantity,
+        BehovsKopas: Math.max(0, plannedSeeds - quantity),
+      };
+    }).filter((row) => row.BehovsKopas > 0 || row["I lager"] === 0);
+
+    const header = Object.keys(rows[0] ?? {
+      Groda: "",
+      Omgang: "",
+      Badd: "",
+      Yta: "",
+      PlaneradeFron: "",
+      "I lager": "",
+      BehovsKopas: "",
+    });
+    const csv = [header.join(";"), ...rows.map((row) => header.map((key) => csvEscape(row[key as keyof typeof row])).join(";"))].join("\n");
+    downloadFile(`inkopslista-${new Date().toISOString().slice(0, 10)}.csv`, csv, "text/csv;charset=utf-8");
+  }
+
+  async function handleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const content = await file.text();
+    const parsedRows = csvToImportRows(content);
+
+    if (parsedRows.length === 0) {
+      alert("Importfilen innehöll inga frörader.");
+      event.target.value = "";
+      return;
+    }
+
+    if (importRowsRef.current && importFormRef.current) {
+      importRowsRef.current.value = JSON.stringify(parsedRows);
+      importFormRef.current.requestSubmit();
+    }
+
+    event.target.value = "";
+  }
 
   function toggleType(type: string) {
     setActiveTypes((current) => {
@@ -336,96 +626,161 @@ export function CropsWorkspace({
 
       <section className="planning-surface">
         <div className="planning-head">
-          <div>
-            <h2>Odlingsplan</h2>
-          </div>
-          <button
-            className="portal-button portal-button--primary"
-            type="button"
-            onClick={() => dialogRef.current?.showModal()}
-          >
-            Lägg till gröda
-          </button>
-        </div>
-
-        <div className="timeline-switcher" aria-label="Välj tidslinjevy">
-          <button className={view === "presow" ? "is-active" : ""} type="button" onClick={() => setView("presow")}>
-            Försådd
-          </button>
-          <button className={view === "crops" ? "is-active" : ""} type="button" onClick={() => setView("crops")}>
-            Grödor
-          </button>
-          <button className={view === "utilization" ? "is-active" : ""} type="button" onClick={() => setView("utilization")}>
-            Bäddar
-          </button>
-        </div>
-
-        <div className="timeline-toolbar">
-          <div className="timeline-summary">
-            <span>Vecka 1-52</span>
-            <span>{filteredCrops.length} grödor</span>
-            <span>{formatArea(totalArea)}</span>
-          </div>
-          <div className="timeline-legend" aria-label="Visa moment">
-            {Object.entries(ACTIVITY_META).map(([key, item]) => (
+          <div className="planning-head__title">
+            <div className="portal-fields-title-row">
+              <h2>Odlingsplan</h2>
               <button
-                className={activeTypes.has(key) ? "is-active" : ""}
-                key={key}
+                aria-label="Hjälp om odlingsplan"
+                className="portal-help-button"
+                onClick={() => helpDialogRef.current?.showModal()}
                 type="button"
-                onClick={() => toggleType(key)}
               >
-                <span style={{ background: item.color }} />
+                ?
+              </button>
+            </div>
+          </div>
+          <div className="planning-head__actions">
+            <form action={importInventorySeedsAction} ref={importFormRef}>
+              <input name="rows" ref={importRowsRef} type="hidden" />
+            </form>
+            <input
+              accept=".csv,text/csv"
+              className="sr-only"
+              onChange={handleImportFile}
+              ref={importInputRef}
+              type="file"
+            />
+            <button
+              className="portal-button portal-button--primary"
+              type="button"
+              onClick={() => dialogRef.current?.showModal()}
+            >
+              Lägg till gröda
+            </button>
+            <button className="portal-button-secondary" type="button" onClick={() => shoppingDialogRef.current?.showModal()}>
+              Inköpslista
+            </button>
+            <form
+              action={clearAllCropsAction}
+              onSubmit={(event) => {
+                if (!window.confirm("Töm hela odlingen? Alla planerade grödor i odlingsplanen tas bort.")) {
+                  event.preventDefault();
+                }
+              }}
+            >
+              <button className="portal-button-secondary portal-button-danger" type="submit">
+                Töm odling
+              </button>
+            </form>
+            <button className="portal-button-secondary" type="button" onClick={() => importInputRef.current?.click()}>
+              Importera fröer
+            </button>
+            <button className="portal-button-secondary" type="button" onClick={exportSeeds}>
+              Exportera fröer
+            </button>
+          </div>
+        </div>
+
+        <div className="timeline-controls">
+          <div className="timeline-switcher segmented-control" aria-label="Välj tidslinjevy">
+            <button className={`segment ${view === "presow" ? "is-active" : ""}`} type="button" onClick={() => setView("presow")}>
+              Försådd
+            </button>
+            <button className={`segment ${view === "crops" ? "is-active" : ""}`} type="button" onClick={() => setView("crops")}>
+              Grödor
+            </button>
+            <button className={`segment ${view === "utilization" ? "is-active" : ""}`} type="button" onClick={() => setView("utilization")}>
+              Bäddar
+            </button>
+          </div>
+
+          <div className="timeline-toolbar">
+            <div className="timeline-legend" aria-label="Visa moment">
+              {Object.entries(ACTIVITY_META).map(([key, item]) => (
+                <button
+                  className={activeTypes.has(key) ? "is-active" : ""}
+                  key={key}
+                  style={{ ["--accent" as string]: item.color } as CSSProperties}
+                  type="button"
+                  onClick={() => toggleType(key)}
+                >
+                <span
+                  className={`timeline-chip-icon timeline-chip-icon--${key}`}
+                  style={{ ["--accent" as string]: item.color } as CSSProperties}
+                  dangerouslySetInnerHTML={{ __html: getActivityIconMarkup(item.icon) }}
+                />
                 {item.label}
               </button>
             ))}
           </div>
-          <label className="timeline-filter">
-            <span>Bädd</span>
-            <select value={fieldFilter} onChange={(event) => setFieldFilter(event.target.value)}>
-              <option value="alla">Alla bäddar</option>
-              {fields.map((field) => (
-                <option key={field.id} value={field.id}>
-                  {field.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="timeline-filters">
-            <label className="timeline-filter">
-              <span>Skifte</span>
-              <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value)}>
-                <option value="alla">Alla skiften</option>
-                {sections.map((section) => (
-                  <option key={section.id} value={section.id}>{section.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="timeline-filter">
-              <span>Familj</span>
-              <select value={familyFilter} onChange={(event) => setFamilyFilter(event.target.value)}>
-                <option value="alla">Alla familjer</option>
-                {families.map((family) => (
-                  <option key={family} value={family}>{family}</option>
-                ))}
-              </select>
-            </label>
-            <label className="timeline-filter">
-              <span>Status</span>
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-                {STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="timeline-filter">
-              <span>Sortera efter</span>
-              <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
-                <option value="field">Bädd</option>
-                <option value="family">Familj</option>
-                <option value="name">Namn</option>
-              </select>
-            </label>
+
+            <div className="timeline-filters">
+              <label className="timeline-filter">
+                <span>Bädd</span>
+                <select value={fieldFilter} onChange={(event) => setFieldFilter(event.target.value)}>
+                  <option value="alla">Alla bäddar</option>
+                  {fields.map((field) => (
+                    <option key={field.id} value={field.id}>
+                      {field.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="timeline-filter">
+                <span>Skifte</span>
+                <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value)}>
+                  <option value="alla">Alla skiften</option>
+                  {sections.map((section) => (
+                    <option key={section.id} value={section.id}>{section.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="timeline-filter">
+                <span>Familj</span>
+                <select value={familyFilter} onChange={(event) => setFamilyFilter(event.target.value)}>
+                  <option value="alla">Alla familjer</option>
+                  {families.map((family) => (
+                    <option key={family} value={family}>{family}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="timeline-filter">
+                <span>Status</span>
+                <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                  {STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="timeline-filter">
+                <span>Sortera efter</span>
+                <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+                  <option value="field">Bädd</option>
+                  <option value="family">Familj</option>
+                  <option value="name">Namn</option>
+                </select>
+              </label>
+            </div>
           </div>
+
+          <section className="timeline-occupancy-card" aria-label="Beläggningsdiagram">
+            <div className="timeline-occupancy-card__head">
+              <strong>Beläggningsdiagram</strong>
+              <span>{filteredCrops.length} grödor · {formatArea(totalArea)}</span>
+            </div>
+            <div className="timeline-occupancy-card__weeks" aria-hidden="true">
+              {WEEKS.map((week) => <span key={week}>{week}</span>)}
+            </div>
+            <div className="timeline-occupancy-card__bars" aria-hidden="true">
+              {occupancyWeeks.map((entry) => (
+                <i
+                  className={`is-${entry.level}`}
+                  key={entry.week}
+                  title={`Vecka ${entry.week}: ${Math.round(entry.ratio * 100)}% beläggning`}
+                />
+              ))}
+            </div>
+          </section>
         </div>
 
         <div className="timeline-frame">
@@ -435,7 +790,7 @@ export function CropsWorkspace({
           </div>
 
           {view === "utilization" ? (
-            <UtilizationRows crops={filteredCrops} fields={fields} week={currentWeek} />
+            <UtilizationRows crops={filteredCrops} fields={fields} frostWindow={resolvedFrostWindow} week={currentWeek} />
           ) : (
             <div className="timeline-rows">
               {cropsByField.length > 0 ? cropsByField.map(([fieldName, group]) => (
@@ -456,6 +811,7 @@ export function CropsWorkspace({
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={(event) => moveTimelineBlock(event.currentTarget, event.clientX)}
                       >
+                        <FrostOverlay frostWindow={resolvedFrostWindow} />
                         <span
                           aria-hidden="true"
                           className="timeline-today-line"
@@ -507,6 +863,128 @@ export function CropsWorkspace({
         />
       </dialog>
 
+      <dialog className="portal-dialog inventory-dialog inventory-dialog--wide" ref={shoppingDialogRef}>
+        <form className="portal-dialog__card seed-shopping-dialog" method="dialog">
+          <div className="portal-dialog__head">
+            <div>
+              <p className="section-kicker">Planering</p>
+              <h3>Inköpslista</h3>
+            </div>
+            <button aria-label="Stäng" className="icon-button" type="submit">
+              ×
+            </button>
+          </div>
+          <p className="section-caption">
+            {`Fröbehov för ${new Date().getFullYear()}. Totalt behövs ${shoppingRows.reduce((sum, row) => sum + row.need, 0)} frön, varav ${shoppingRows.reduce((sum, row) => sum + row.purchase, 0)} behöver köpas.`}
+          </p>
+          <div className="table-wrap seed-shopping-table-wrap">
+            <table className="data-table seed-shopping-table">
+              <thead>
+                <tr>
+                  <th>Gröda</th>
+                  <th>Sort</th>
+                  <th>I lager</th>
+                  <th>Behov</th>
+                  <th>Köp</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="seed-shopping-section-row">
+                  <td colSpan={6}>Fröer att köpa</td>
+                </tr>
+                {shoppingRows.filter((row) => row.purchase > 0).length > 0 ? (
+                  shoppingRows.filter((row) => row.purchase > 0).map((row) => (
+                    <tr key={`buy-${row.key}`}>
+                      <td><strong>{row.title}</strong></td>
+                      <td>{row.variety || "-"}</td>
+                      <td>{row.stock}</td>
+                      <td><strong>{row.need}</strong></td>
+                      <td><strong>{row.purchase}</strong></td>
+                      <td>
+                        {row.personalSeedId ? (
+                          <form action={purchaseShoppingSeedsAction}>
+                            <input name="personalSeedId" type="hidden" value={row.personalSeedId} />
+                            <input name="stockId" type="hidden" value={row.stockId ?? ""} />
+                            <input name="crop" type="hidden" value={row.crop} />
+                            <input name="variety" type="hidden" value={row.variety} />
+                            <input name="quantity" type="hidden" value={String(row.stock + row.purchase)} />
+                            <button
+                              className="icon-button seed-shopping-buy"
+                              type="submit"
+                              aria-label={`Registrera köp av ${row.title}`}
+                              dangerouslySetInnerHTML={{ __html: getActivityIconMarkup("shoppingCart") }}
+                            />
+                          </form>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="harvest-empty" colSpan={6}>Inga fröer behöver köpas just nu.</td>
+                  </tr>
+                )}
+                <tr className="seed-shopping-section-row">
+                  <td colSpan={6}>Fröer i lager som används i år</td>
+                </tr>
+                {shoppingRows.filter((row) => row.need > 0 && row.stock > 0 && row.purchase <= 0).length > 0 ? (
+                  shoppingRows.filter((row) => row.need > 0 && row.stock > 0 && row.purchase <= 0).map((row) => (
+                    <tr key={`stock-${row.key}`}>
+                      <td><strong>{row.title}</strong></td>
+                      <td>{row.variety || "-"}</td>
+                      <td>{row.stock}</td>
+                      <td><strong>{row.need}</strong></td>
+                      <td><strong>{row.purchase}</strong></td>
+                      <td />
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="harvest-empty" colSpan={6}>Inga lagerförda fröer används i årets plan ännu.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="form-actions">
+            <button className="button-secondary" type="button" onClick={exportShoppingList}>Exportera CSV</button>
+            <button className="button-primary" type="submit">Stäng</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog className="portal-dialog" ref={helpDialogRef}>
+        <form className="portal-dialog__card portal-help-card" method="dialog">
+          <div className="portal-dialog__head">
+            <div>
+              <p className="section-kicker">Hjälp</p>
+              <h3>Odlingsplan</h3>
+            </div>
+            <button aria-label="Stäng" className="icon-button" type="submit">
+              ×
+            </button>
+          </div>
+          <div className="portal-help-grid">
+            <article className="portal-help-item">
+              <strong>Tidslinjen</strong>
+              <p>Chipsen styr vilka moment som visas. Varje markering visar vald vecka för försådd, direktsådd, utplantering eller skörd.</p>
+            </article>
+            <article className="portal-help-item">
+              <strong>Beläggningsdiagram</strong>
+              <p>Staplarna visar hur mycket av de valda bäddarna som används per vecka. Rött betyder att planeringen riskerar att bli överbelagd.</p>
+            </article>
+            <article className="portal-help-item">
+              <strong>Frostperiod</strong>
+              <p>Heldragen blå zon visar hög historisk frostrisk. Det streckade blå bandet visar övergångszonen där sista vårfrost eller första höstfrost ofta ligger.</p>
+            </article>
+          </div>
+          <div className="flex justify-end">
+            <button className="portal-button-primary" type="submit">Stäng</button>
+          </div>
+        </form>
+      </dialog>
+
       {editingCrop ? (
         <CropEditDialog
           crop={editingCrop}
@@ -518,6 +996,50 @@ export function CropsWorkspace({
           seedTemplates={seedTemplates}
           tasks={tasks}
           updateCropAction={updateCropAction}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function FrostOverlay({ frostWindow }: { frostWindow: FrostWindow }) {
+  const springSolidEnd = Math.min(frostWindow.lastSpringWeek, Math.max(frostWindow.springRiskStartWeek - 1, 1));
+  const autumnSolidStart = Math.max(frostWindow.firstAutumnWeek, frostWindow.autumnRiskEndWeek + 1);
+
+  return (
+    <>
+      {springSolidEnd >= 1 ? (
+        <span
+          aria-hidden="true"
+          className="timeline-frost-zone timeline-frost-zone--spring"
+          style={{ left: weekToPercentStart(1), width: weekToPercentWidth(1, springSolidEnd) }}
+        />
+      ) : null}
+      {frostWindow.springRiskEndWeek >= frostWindow.springRiskStartWeek ? (
+        <span
+          aria-hidden="true"
+          className="timeline-frost-band timeline-frost-band--spring"
+          style={{
+            left: weekToPercentStart(frostWindow.springRiskStartWeek),
+            width: weekToPercentWidth(frostWindow.springRiskStartWeek, frostWindow.springRiskEndWeek),
+          }}
+        />
+      ) : null}
+      {autumnSolidStart <= 52 ? (
+        <span
+          aria-hidden="true"
+          className="timeline-frost-zone timeline-frost-zone--autumn"
+          style={{ left: weekToPercentStart(autumnSolidStart), width: weekToPercentWidth(autumnSolidStart, 52) }}
+        />
+      ) : null}
+      {frostWindow.autumnRiskEndWeek >= frostWindow.autumnRiskStartWeek ? (
+        <span
+          aria-hidden="true"
+          className="timeline-frost-band timeline-frost-band--autumn"
+          style={{
+            left: weekToPercentStart(frostWindow.autumnRiskStartWeek),
+            width: weekToPercentWidth(frostWindow.autumnRiskStartWeek, frostWindow.autumnRiskEndWeek),
+          }}
         />
       ) : null}
     </>
@@ -563,7 +1085,17 @@ function UtilizationOverview({ crops, fields }: { crops: CropRow[]; fields: Fiel
   );
 }
 
-function UtilizationRows({ crops, fields, week }: { crops: CropRow[]; fields: FieldRow[]; week: number }) {
+function UtilizationRows({
+  crops,
+  fields,
+  frostWindow,
+  week,
+}: {
+  crops: CropRow[];
+  fields: FieldRow[];
+  frostWindow: FrostWindow;
+  week: number;
+}) {
   return (
     <div className="timeline-rows">
       {fields.length > 0 ? fields.map((field) => {
@@ -579,6 +1111,7 @@ function UtilizationRows({ crops, fields, week }: { crops: CropRow[]; fields: Fi
               <span>{formatArea(field.areaM2)} tillgängligt</span>
             </div>
             <div className="timeline-track">
+              <FrostOverlay frostWindow={frostWindow} />
               <span
                 aria-hidden="true"
                 className="timeline-today-line"
