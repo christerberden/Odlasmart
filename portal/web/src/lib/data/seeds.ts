@@ -69,7 +69,14 @@ type SeedTemplateOptionQueryRow = {
   family: string;
   latin_family: string;
   method: string;
-  schedule: unknown;
+  forsaddStart: number | null;
+  forsaddEnd: number | null;
+  transplantStart: number | null;
+  transplantEnd: number | null;
+  directStart: number | null;
+  directEnd: number | null;
+  harvestStart: number | null;
+  harvestEnd: number | null;
   culture_time: string;
   spacing: string;
   row_spacing: string;
@@ -155,7 +162,7 @@ export async function getSeedTemplateOptions(): Promise<SeedTemplateOption[]> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("seed_templates")
-    .select("id, crop, variety, family, latin_family, method, schedule, culture_time, spacing, row_spacing, seed_per_75, seed_per_m2")
+    .select("id, crop, variety, family, latin_family, method, forsaddStart, forsaddEnd, transplantStart, transplantEnd, directStart, directEnd, harvestStart, harvestEnd, culture_time, spacing, row_spacing, seed_per_75, seed_per_m2")
     .order("crop", { ascending: true })
     .order("variety", { ascending: true });
 
@@ -170,7 +177,7 @@ export async function getSeedTemplateOptions(): Promise<SeedTemplateOption[]> {
     family: seed.family,
     latinFamily: seed.latin_family,
     method: seed.method,
-    schedule: parseSchedule(seed.schedule),
+    schedule: parseSchedule(seed),
     cultureTime: seed.culture_time,
     spacing: seed.spacing,
     rowSpacing: seed.row_spacing,

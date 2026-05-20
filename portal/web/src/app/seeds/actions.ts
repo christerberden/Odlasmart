@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentAuthState } from "@/lib/auth/workspaces";
 
+const SEED_TEMPLATE_COPY_COLUMNS = "id, family, latin_family, crop, variety, method, forsaddStart, forsaddEnd, transplantStart, transplantEnd, directStart, directEnd, harvestStart, harvestEnd, culture_time, spacing, row_spacing, seed_per_75, seed_per_m2" as const;
+
 type PersonalSeedInsertClient = {
   from(table: "personal_seeds"): {
     insert(values: {
@@ -29,7 +31,7 @@ type PersonalSeedInsertClient = {
 
 type SeedTemplateClient = {
   from(table: "seed_templates"): {
-    select(columns: "id, family, latin_family, crop, variety, method, schedule, culture_time, spacing, row_spacing, seed_per_75, seed_per_m2"): {
+    select(columns: typeof SEED_TEMPLATE_COPY_COLUMNS): {
       eq(column: "id" | "crop" | "variety", value: string): {
         eq(column: "variety", value: string): {
           limit(count: 1): Promise<{
@@ -48,7 +50,7 @@ type SeedTemplateClient = {
 
 type SeedTemplateSearchClient = {
   from(table: "seed_templates"): {
-    select(columns: "id, family, latin_family, crop, variety, method, schedule, culture_time, spacing, row_spacing, seed_per_75, seed_per_m2"): {
+    select(columns: typeof SEED_TEMPLATE_COPY_COLUMNS): {
       eq(column: "crop", value: string): {
         limit(count: 1): Promise<{
           data: SeedTemplateCopyRow[] | null;
@@ -66,7 +68,14 @@ type SeedTemplateCopyRow = {
   crop: string;
   variety: string;
   method: string;
-  schedule: unknown;
+  forsaddStart: number | null;
+  forsaddEnd: number | null;
+  transplantStart: number | null;
+  transplantEnd: number | null;
+  directStart: number | null;
+  directEnd: number | null;
+  harvestStart: number | null;
+  harvestEnd: number | null;
   culture_time: string;
   spacing: string;
   row_spacing: string;
@@ -86,6 +95,23 @@ function getOptionalNumber(formData: FormData, key: string) {
 
   const parsed = Number(value.replace(",", "."));
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getTemplateSchedule(template: SeedTemplateCopyRow | null | undefined) {
+  if (!template) {
+    return {};
+  }
+
+  return {
+    forsaddStart: template.forsaddStart,
+    forsaddEnd: template.forsaddEnd,
+    transplantStart: template.transplantStart,
+    transplantEnd: template.transplantEnd,
+    directStart: template.directStart,
+    directEnd: template.directEnd,
+    harvestStart: template.harvestStart,
+    harvestEnd: template.harvestEnd,
+  };
 }
 
 async function getActiveWorkspaceOrRedirect() {
@@ -111,7 +137,7 @@ async function findMatchingTemplate(
   const templateClient = supabase as unknown as SeedTemplateClient;
   const exactResult = await templateClient
     .from("seed_templates")
-    .select("id, family, latin_family, crop, variety, method, schedule, culture_time, spacing, row_spacing, seed_per_75, seed_per_m2")
+    .select(SEED_TEMPLATE_COPY_COLUMNS)
     .eq("crop", crop)
     .eq("variety", variety)
     .limit(1);
@@ -123,7 +149,7 @@ async function findMatchingTemplate(
   const templateSearchClient = supabase as unknown as SeedTemplateSearchClient;
   const cropResult = await templateSearchClient
     .from("seed_templates")
-    .select("id, family, latin_family, crop, variety, method, schedule, culture_time, spacing, row_spacing, seed_per_75, seed_per_m2")
+    .select(SEED_TEMPLATE_COPY_COLUMNS)
     .eq("crop", crop)
     .limit(1);
 
@@ -150,7 +176,7 @@ export async function createPersonalSeed(formData: FormData) {
     family: getFormString(formData, "family") || template?.family || "",
     latin_family: template?.latin_family ?? "",
     method: getFormString(formData, "method") || template?.method || "",
-    schedule: template?.schedule ?? {},
+    schedule: getTemplateSchedule(template),
     culture_time: template?.culture_time ?? "",
     spacing: template?.spacing ?? "",
     row_spacing: template?.row_spacing ?? "",
@@ -180,7 +206,7 @@ export async function addSeedTemplateToPersonalSeeds(formData: FormData) {
   const templateClient = supabase as unknown as SeedTemplateClient;
   const { data: template, error: templateError } = await templateClient
     .from("seed_templates")
-    .select("id, family, latin_family, crop, variety, method, schedule, culture_time, spacing, row_spacing, seed_per_75, seed_per_m2")
+    .select(SEED_TEMPLATE_COPY_COLUMNS)
     .eq("id", templateId)
     .maybeSingle();
 
@@ -197,7 +223,7 @@ export async function addSeedTemplateToPersonalSeeds(formData: FormData) {
     family: template.family,
     latin_family: template.latin_family,
     method: template.method,
-    schedule: template.schedule,
+    schedule: getTemplateSchedule(template),
     culture_time: template.culture_time,
     spacing: template.spacing,
     row_spacing: template.row_spacing,

@@ -19,7 +19,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
   }
 
   if (authState.workspaces.length > 0) {
-    redirect("/");
+    redirect("/tasks");
   }
 
   return (

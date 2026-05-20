@@ -32,7 +32,7 @@ export async function signInWithPassword(formData: FormData) {
     redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
 
-  redirect("/onboarding");
+  redirect("/tasks");
 }
 
 export async function signUpWithPassword(formData: FormData) {
@@ -73,5 +73,5 @@ export async function createWorkspace(formData: FormData) {
     redirect(`/onboarding?error=${encodeURIComponent(error.message)}`);
   }
 
-  redirect("/");
+  redirect("/tasks");
 }

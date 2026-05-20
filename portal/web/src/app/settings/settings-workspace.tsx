@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { openAppGuide } from "@/app/components/app-guide";
 import type { CropRow } from "@/lib/data/crops";
 import type { WeatherLocation } from "@/lib/data/preferences";
 import type { FieldRow, SectionRow } from "@/lib/data/fields";
@@ -22,29 +23,6 @@ type WeatherSuggestion = WeatherLocation & {
 const THEME_KEY = "odlingskalender:theme";
 const WEATHER_LOCATION_KEY = "odlingskalender:weather-location";
 const WEATHER_LOCATION_EVENT = "odlingskalender:weather-location-updated";
-
-const guideSteps = [
-  {
-    title: "1. Menyn till vänster",
-    text: "Du rör dig mellan sidorna med menyn till vänster. Där finns arbete, planering, skörd och inställningar.",
-  },
-  {
-    title: "2. Odlingsytor",
-    text: "Börja med att skapa skiften och bäddar. De blir grunden som grödor kopplas till i odlingsplanen.",
-  },
-  {
-    title: "3. Odlingsplan",
-    text: "Lägg till grödor i bäddar och justera veckorna för försådd, direktsådd, utplantering och skörd.",
-  },
-  {
-    title: "4. Idag",
-    text: "Här visas uppgifter som skapas från grödorna. Du markerar sådd, plantering och skörd som utförda.",
-  },
-  {
-    title: "5. Skörd",
-    text: "Följ upp kilo, yta, pris per kilo och prognos så du kan jämföra planerat och faktiskt utfall.",
-  },
-];
 
 function getArea(field: FieldRow) {
   return field.areaM2 ?? (field.widthM != null && field.lengthM != null ? field.widthM * field.lengthM : null);
@@ -127,8 +105,6 @@ export function SettingsWorkspace({
   const [weatherStatus, setWeatherStatus] = useState("");
   const [weatherSuggestions, setWeatherSuggestions] = useState<WeatherSuggestion[]>([]);
   const [weatherSaving, setWeatherSaving] = useState(false);
-  const [guideOpen, setGuideOpen] = useState(false);
-  const [guideStep, setGuideStep] = useState(0);
 
   useEffect(() => {
     const storedTheme = getStoredTheme();
@@ -257,18 +233,64 @@ export function SettingsWorkspace({
     }
   }
 
-  function nextGuideStep() {
-    if (guideStep === guideSteps.length - 1) {
-      setGuideOpen(false);
-      return;
-    }
-    setGuideStep((current) => current + 1);
-  }
-
   return (
     <>
       {error ? <p className="portal-error">{error}</p> : null}
       {resetDone ? <p className="portal-success">Workspace-data är nollställd.</p> : null}
+
+      <section className="settings-mobile-layout">
+        <section className="settings-original-panel">
+          <h2>Utseende</h2>
+          <p>VÃ¤lj om appen ska visas i ljust eller mÃ¶rkt tema.</p>
+          <div className="segmented-control settings-theme-switcher">
+            <button className={`segment ${theme === "light" ? "is-active" : ""}`} type="button" onClick={() => updateTheme("light")}>Ljust</button>
+            <button className={`segment ${theme === "dark" ? "is-active" : ""}`} type="button" onClick={() => updateTheme("dark")}>MÃ¶rkt</button>
+          </div>
+        </section>
+
+        <section className="settings-original-panel">
+          <h2>Kom igÃ¥ng</h2>
+          <p>Ã–ppna en stegvis guide som visar hur appen Ã¤r uppbyggd och hur du rÃ¶r dig mellan de viktigaste sidorna.</p>
+          <button className="portal-button portal-button--primary" type="button" onClick={() => openAppGuide()}>Visa guide</button>
+        </section>
+
+        <section className="settings-original-panel">
+          <h2>VÃ¤derplats</h2>
+          <p className="settings-inline-note">{weatherLocation ? `VÃ¤derplats: ${weatherLocation.name}` : "Ingen vÃ¤derplats vald Ã¤n."}</p>
+          <p>StÃ¤ll in vilken ort vÃ¤derwidgeten ska anvÃ¤nda.</p>
+          <form className="settings-weather-form" onSubmit={saveWeatherLocation}>
+            <label htmlFor="weather-location-query-mobile">Ort</label>
+            <div className="settings-weather-form__row">
+              <div className="settings-weather-input-wrap">
+                <input
+                  id="weather-location-query-mobile"
+                  list="weather-location-suggestions-mobile"
+                  name="weatherLocationMobile"
+                  onChange={(event) => handleWeatherDraftChange(event.target.value)}
+                  placeholder="t.ex. Lund"
+                  type="search"
+                  value={weatherDraft}
+                />
+                <datalist id="weather-location-suggestions-mobile">
+                  {weatherSuggestions.map((suggestion) => (
+                    <option key={`mobile-${suggestion.latitude}:${suggestion.longitude}`} value={suggestion.label} />
+                  ))}
+                </datalist>
+              </div>
+              <button className="portal-button portal-button--primary" disabled={weatherSaving} type="submit">
+                {weatherSaving ? "Sparar..." : "Spara vÃ¤derplats"}
+              </button>
+            </div>
+            {weatherStatus ? <p className="settings-inline-note">{weatherStatus}</p> : null}
+          </form>
+        </section>
+
+        <section className="settings-original-panel">
+          <h2>Externa datakÃ¤llor</h2>
+          <p>Weather data Â© SMHI (CC BY 4.0)</p>
+          <p>Modified and processed by Lilla bjÃ¶rkbacka.</p>
+        </section>
+      </section>
 
       <section className="settings-original-layout">
         <div className="settings-original-main">
@@ -318,10 +340,7 @@ export function SettingsWorkspace({
           <section className="settings-original-panel">
             <h2>Kom igång</h2>
             <p>Öppna en stegvis guide som visar var knappar, information och viktiga arbetsflöden finns i appen.</p>
-            <button className="portal-button portal-button--primary" type="button" onClick={() => {
-              setGuideStep(0);
-              setGuideOpen(true);
-            }}>Visa guide</button>
+            <button className="portal-button portal-button--primary" type="button" onClick={() => openAppGuide()}>Visa guide</button>
           </section>
 
           <section className="settings-original-panel">
@@ -372,24 +391,6 @@ export function SettingsWorkspace({
         </aside>
       </section>
 
-      {guideOpen ? (
-        <div className="settings-guide-overlay" role="dialog" aria-modal="true">
-          <article className="settings-guide-card">
-            <div className="portal-dialog__head">
-              <div>
-                <h3>{guideSteps[guideStep].title}</h3>
-                <p>Steg {guideStep + 1} av {guideSteps.length}</p>
-              </div>
-              <button className="icon-button" type="button" onClick={() => setGuideOpen(false)}>×</button>
-            </div>
-            <p>{guideSteps[guideStep].text}</p>
-            <div className="form-actions">
-              <button className="portal-button" disabled={guideStep === 0} type="button" onClick={() => setGuideStep((current) => Math.max(0, current - 1))}>Föregående</button>
-              <button className="portal-button portal-button--primary" type="button" onClick={nextGuideStep}>{guideStep === guideSteps.length - 1 ? "Stäng guide" : "Nästa"}</button>
-            </div>
-          </article>
-        </div>
-      ) : null}
     </>
   );
 }

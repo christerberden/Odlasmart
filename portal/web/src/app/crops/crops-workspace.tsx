@@ -3,6 +3,7 @@
 import { startTransition, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, CSSProperties } from "react";
 import { useRouter } from "next/navigation";
+import { InlineHelpPopover } from "@/app/components/inline-help-popover";
 import { CropCreateForm } from "@/app/crops/crop-create-form";
 import type { CropRow } from "@/lib/data/crops";
 import type { FieldRow, SectionRow } from "@/lib/data/fields";
@@ -423,7 +424,6 @@ export function CropsWorkspace({
 }: CropsWorkspaceProps) {
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const helpDialogRef = useRef<HTMLDialogElement>(null);
   const shoppingDialogRef = useRef<HTMLDialogElement>(null);
   const importFormRef = useRef<HTMLFormElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -629,17 +629,19 @@ export function CropsWorkspace({
           <div className="planning-head__title">
             <div className="portal-fields-title-row">
               <h2>Odlingsplan</h2>
-              <button
-                aria-label="Hjälp om odlingsplan"
-                className="portal-help-button"
-                onClick={() => helpDialogRef.current?.showModal()}
-                type="button"
-              >
-                ?
-              </button>
+              <InlineHelpPopover
+                ariaLabel="Hjälp om odlingsplan"
+                buttonClassName="portal-help-button"
+                items={[
+                  { title: "Tidslinjen", text: "Chipsen styr vilka moment som visas. Varje markering visar vald vecka för försådd, direktsådd, utplantering eller skörd." },
+                  { title: "Beläggningsdiagram", text: "Staplarna visar hur mycket av de valda bäddarna som används per vecka. Rött betyder att planeringen riskerar att bli överbelagd." },
+                  { title: "Frostperiod", text: "Heldragen blå zon visar hög historisk frostrisk. Det streckade blå bandet visar övergångszonen där sista vårfrost eller första höstfrost ofta ligger." },
+                ]}
+                title="Odlingsplan"
+              />
             </div>
           </div>
-          <div className="planning-head__actions">
+          <div className="planning-head__actions" id="crop-planning-actions">
             <form action={importInventorySeedsAction} ref={importFormRef}>
               <input name="rows" ref={importRowsRef} type="hidden" />
             </form>
@@ -714,7 +716,7 @@ export function CropsWorkspace({
             ))}
           </div>
 
-            <div className="timeline-filters">
+            <div className="timeline-filters" id="timeline-field-filters">
               <label className="timeline-filter">
                 <span>Bädd</span>
                 <select value={fieldFilter} onChange={(event) => setFieldFilter(event.target.value)}>
@@ -950,37 +952,6 @@ export function CropsWorkspace({
           <div className="form-actions">
             <button className="button-secondary" type="button" onClick={exportShoppingList}>Exportera CSV</button>
             <button className="button-primary" type="submit">Stäng</button>
-          </div>
-        </form>
-      </dialog>
-
-      <dialog className="portal-dialog" ref={helpDialogRef}>
-        <form className="portal-dialog__card portal-help-card" method="dialog">
-          <div className="portal-dialog__head">
-            <div>
-              <p className="section-kicker">Hjälp</p>
-              <h3>Odlingsplan</h3>
-            </div>
-            <button aria-label="Stäng" className="icon-button" type="submit">
-              ×
-            </button>
-          </div>
-          <div className="portal-help-grid">
-            <article className="portal-help-item">
-              <strong>Tidslinjen</strong>
-              <p>Chipsen styr vilka moment som visas. Varje markering visar vald vecka för försådd, direktsådd, utplantering eller skörd.</p>
-            </article>
-            <article className="portal-help-item">
-              <strong>Beläggningsdiagram</strong>
-              <p>Staplarna visar hur mycket av de valda bäddarna som används per vecka. Rött betyder att planeringen riskerar att bli överbelagd.</p>
-            </article>
-            <article className="portal-help-item">
-              <strong>Frostperiod</strong>
-              <p>Heldragen blå zon visar hög historisk frostrisk. Det streckade blå bandet visar övergångszonen där sista vårfrost eller första höstfrost ofta ligger.</p>
-            </article>
-          </div>
-          <div className="flex justify-end">
-            <button className="portal-button-primary" type="submit">Stäng</button>
           </div>
         </form>
       </dialog>

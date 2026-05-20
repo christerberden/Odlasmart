@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { getCurrentAuthState } from "@/lib/auth/workspaces";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+const SEED_TEMPLATE_SCHEDULE_COLUMNS = "id, forsaddStart, forsaddEnd, transplantStart, transplantEnd, directStart, directEnd, harvestStart, harvestEnd, harvest_interval" as const;
+
 type CropInsertClient = {
   from(table: "crops"): {
     insert(values: {
@@ -241,16 +243,16 @@ type SeedScheduleClient = {
 
 type SeedTemplateClient = {
   from(table: "seed_templates"): {
-    select(columns: "id, schedule, harvest_interval"): {
+    select(columns: typeof SEED_TEMPLATE_SCHEDULE_COLUMNS): {
       eq(column: "id" | "crop" | "variety", value: string): {
         eq(column: "variety", value: string): {
           limit(count: 1): Promise<{
-            data: { schedule: unknown; harvest_interval: number | null }[] | null;
+            data: SeedTemplateScheduleRow[] | null;
             error: { message: string } | null;
           }>;
         };
         maybeSingle(): Promise<{
-          data: { schedule: unknown; harvest_interval: number | null } | null;
+          data: SeedTemplateScheduleRow | null;
           error: { message: string } | null;
         }>;
       };
@@ -260,10 +262,10 @@ type SeedTemplateClient = {
 
 type SeedTemplateSearchClient = {
   from(table: "seed_templates"): {
-    select(columns: "id, schedule, harvest_interval"): {
+    select(columns: typeof SEED_TEMPLATE_SCHEDULE_COLUMNS): {
       eq(column: "crop", value: string): {
         limit(count: 1): Promise<{
-          data: { schedule: unknown; harvest_interval: number | null }[] | null;
+          data: SeedTemplateScheduleRow[] | null;
           error: { message: string } | null;
         }>;
       };
@@ -286,6 +288,19 @@ type CropSchedule = {
 type SeedScheduleSource = {
   schedule: CropSchedule;
   harvestInterval: number | null;
+};
+
+type SeedTemplateScheduleRow = {
+  id: string;
+  forsaddStart: number | null;
+  forsaddEnd: number | null;
+  transplantStart: number | null;
+  transplantEnd: number | null;
+  directStart: number | null;
+  directEnd: number | null;
+  harvestStart: number | null;
+  harvestEnd: number | null;
+  harvest_interval: number | null;
 };
 
 function getFormString(formData: FormData, key: string) {
@@ -483,12 +498,12 @@ async function getSeedScheduleSource(
     const templateId = seedSourceId.replace("template:", "");
     const { data } = await templateClient
       .from("seed_templates")
-      .select("id, schedule, harvest_interval")
+      .select(SEED_TEMPLATE_SCHEDULE_COLUMNS)
       .eq("id", templateId)
       .maybeSingle();
 
     return {
-      schedule: normalizeSchedule(data?.schedule),
+      schedule: normalizeSchedule(data),
       harvestInterval: data?.harvest_interval ?? null,
     };
   }
@@ -510,7 +525,7 @@ async function getSeedScheduleSource(
   const templateResult = personalSeed?.template_id
     ? await templateClient
         .from("seed_templates")
-        .select("id, schedule, harvest_interval")
+        .select(SEED_TEMPLATE_SCHEDULE_COLUMNS)
         .eq("id", personalSeed.template_id)
         .maybeSingle()
     : null;
@@ -518,7 +533,7 @@ async function getSeedScheduleSource(
   const fallbackResult = !templateResult?.data && personalSeed
     ? await templateClient
         .from("seed_templates")
-        .select("id, schedule, harvest_interval")
+        .select(SEED_TEMPLATE_SCHEDULE_COLUMNS)
         .eq("crop", personalSeed.crop)
         .eq("variety", personalSeed.variety)
         .limit(1)
@@ -527,7 +542,7 @@ async function getSeedScheduleSource(
   const cropOnlyResult = !templateResult?.data && !fallbackResult?.data?.[0] && personalSeed
     ? await templateSearchClient
         .from("seed_templates")
-        .select("id, schedule, harvest_interval")
+        .select(SEED_TEMPLATE_SCHEDULE_COLUMNS)
         .eq("crop", personalSeed.crop)
         .limit(1)
     : null;
@@ -536,7 +551,7 @@ async function getSeedScheduleSource(
   const titleResult = !templateResult?.data && !fallbackResult?.data?.[0] && !cropOnlyResult?.data?.[0] && titleCrop
     ? await templateSearchClient
         .from("seed_templates")
-        .select("id, schedule, harvest_interval")
+        .select(SEED_TEMPLATE_SCHEDULE_COLUMNS)
         .eq("crop", titleCrop)
         .limit(1)
     : null;
@@ -548,7 +563,7 @@ async function getSeedScheduleSource(
     titleResult?.data?.[0] ??
     null;
   const personalSchedule = normalizeSchedule(personalSeed?.schedule);
-  const templateSchedule = normalizeSchedule(template?.schedule);
+  const templateSchedule = normalizeSchedule(template);
   const hasPersonalSchedule = Object.values(personalSchedule).some((value) => value != null);
 
   return {

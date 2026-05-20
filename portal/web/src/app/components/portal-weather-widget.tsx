@@ -6,9 +6,20 @@ import type { WeatherLocation } from "@/lib/data/preferences";
 const WEATHER_LOCATION_KEY = "odlingskalender:weather-location";
 const WEATHER_LOCATION_EVENT = "odlingskalender:weather-location-updated";
 
+type DailyForecast = {
+  code: number;
+  date: string;
+  label: string;
+  max: number;
+  min: number;
+  precipitation: number;
+  rainAmount: number;
+};
+
 type WeatherWidgetData = {
   advice: string[];
   currentTemp: number;
+  daily: DailyForecast[];
   label: string;
   locationName: string;
   maxTemp: number;
@@ -37,6 +48,31 @@ function readStoredWeatherLocation() {
   } catch {
     return null;
   }
+}
+
+function getWeekdayLabel(dateString: string) {
+  const [year, month, day] = dateString.split("-").map(Number);
+  const date = new Date(year, (month ?? 1) - 1, day ?? 1);
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+  return date.toLocaleDateString("sv-SE", { weekday: "short" }).replace(".", "");
+}
+
+function WeatherGlyph({ code }: { code: number }) {
+  if (code === 1) {
+    return <span aria-hidden="true">☀</span>;
+  }
+  if ([2, 3, 4, 5].includes(code)) {
+    return <span aria-hidden="true">⛅</span>;
+  }
+  if ([8, 9, 10, 11].includes(code)) {
+    return <span aria-hidden="true">🌧</span>;
+  }
+  if ([12, 13, 14, 15].includes(code)) {
+    return <span aria-hidden="true">❄</span>;
+  }
+  return <span aria-hidden="true">☁</span>;
 }
 
 export function PortalWeatherWidget({ initialWeatherLocation }: PortalWeatherWidgetProps) {
@@ -134,13 +170,29 @@ export function PortalWeatherWidget({ initialWeatherLocation }: PortalWeatherWid
 
   return (
     <div className="weather-widget">
-      <div className="weather-widget__top">
-        <strong>{loading && !widgetData ? "..." : `${widgetData?.currentTemp ?? "--"}°C`}</strong>
-        <span>{widgetData?.label ?? "Hämtar väder..."}</span>
+      <div className="weather-widget__current">
+        <div className="weather-widget__top">
+          <strong>{loading && !widgetData ? "..." : `${widgetData?.currentTemp ?? "--"}°C`}</strong>
+          <span>{widgetData?.label ?? "Hämtar väder..."}</span>
+        </div>
+        <p>{widgetData?.locationName ?? weatherLocation.name}</p>
+        <p>{widgetData ? `${widgetData.minTemp}° / ${widgetData.maxTemp}°` : "Läser prognos..."}</p>
+        <p>{widgetData?.soilTemp != null ? `Uppskattad jordtemp 5 cm ${widgetData.soilTemp}°C` : "Uppskattad jordtemp 5 cm --°C"}</p>
       </div>
-      <p>{widgetData?.locationName ?? weatherLocation.name}</p>
-      <p>{widgetData ? `${widgetData.minTemp}° / ${widgetData.maxTemp}°` : "Läser prognos..."}</p>
-      <p>{widgetData?.soilTemp != null ? `Uppskattad jordtemp 5 cm ${widgetData.soilTemp}°C` : "Uppskattad jordtemp 5 cm --°C"}</p>
+
+      {widgetData?.daily?.length ? (
+        <div className="weather-widget__forecast" aria-label="Kommande veckas prognos">
+          {widgetData.daily.map((day) => (
+            <article className="weather-widget__day" key={day.date}>
+              <span className="weather-widget__day-label">{getWeekdayLabel(day.date)}</span>
+              <span className="weather-widget__day-icon"><WeatherGlyph code={day.code} /></span>
+              <span className="weather-widget__day-temp">{day.max}°</span>
+              <span className="weather-widget__day-low">{day.min}°</span>
+            </article>
+          ))}
+        </div>
+      ) : null}
+
       <p>{widgetData?.advice?.[0] ?? "Inga väderråd just nu."}</p>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { InlineHelpPopover } from "@/app/components/inline-help-popover";
 import type { CropRow } from "@/lib/data/crops";
 import type { FieldRow } from "@/lib/data/fields";
 import type { HarvestEntryRow } from "@/lib/data/harvest";
@@ -222,10 +223,18 @@ export function HarvestWorkspace({ action, crops, error, fields, harvestEntries,
         <div className="harvest-head">
           <div className="section-head__title-row">
             <h2>Skörd</h2>
-            <button aria-label="Hjälp om skörd" className="help-button" type="button">?</button>
+            <InlineHelpPopover
+              ariaLabel="Hjälp om skörd"
+              items={[
+                { title: "Skördetabellen", text: "Här följer du årets registrerade kilo, yta, skörd per kvadratmeter och beräknad inkomst." },
+                { title: "Pris per kilo", text: "Du kan justera priset direkt i tabellen för att se hur inkomsten påverkas." },
+                { title: "Prognos", text: "Prognosen använder årets planerade grödor tillsammans med tidigare skörd och prisnivåer för att uppskatta kommande intäkter." },
+              ]}
+              title="Skörd"
+            />
           </div>
-          <div className="harvest-head__actions">
-            <button className="portal-button" type="button" onClick={openForecastDialog}>Prognos</button>
+          <div className="harvest-head__actions" id="harvest-actions">
+            <button className="portal-button" id="open-harvest-forecast-dialog" type="button" onClick={openForecastDialog}>Prognos</button>
             <button className="portal-button portal-button--primary" type="button" onClick={() => dialogRef.current?.showModal()}>
               Lägg till skörd
             </button>

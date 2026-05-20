@@ -66,7 +66,7 @@ const catalogSource = await readFile(catalogPath, "utf8");
 const rows = loadCatalog(catalogSource);
 
 const values = rows.map((row, index) => {
-  const schedule = JSON.stringify(getSchedule(row)).replaceAll("'", "''");
+  const schedule = getSchedule(row);
 
   return `(
   ${sqlString(`seed-${index + 1}`)},
@@ -75,7 +75,14 @@ const values = rows.map((row, index) => {
   ${sqlString(getValue(row, "Gröda"))},
   ${sqlString(getValue(row, "Sort"))},
   ${sqlString(getValue(row, "Metod"))},
-  '${schedule}'::jsonb,
+  ${sqlNumber(schedule.forsaddStart)},
+  ${sqlNumber(schedule.forsaddEnd)},
+  ${sqlNumber(schedule.transplantStart)},
+  ${sqlNumber(schedule.transplantEnd)},
+  ${sqlNumber(schedule.directStart)},
+  ${sqlNumber(schedule.directEnd)},
+  ${sqlNumber(schedule.harvestStart)},
+  ${sqlNumber(schedule.harvestEnd)},
   ${sqlString(getValue(row, "kulturtid"))},
   ${sqlString(getValue(row, "Plantavstånd"))},
   ${sqlString(getValue(row, "Radavstånd"))},
@@ -92,7 +99,14 @@ const sql = `insert into public.seed_templates (
   crop,
   variety,
   method,
-  schedule,
+  "forsaddStart",
+  "forsaddEnd",
+  "transplantStart",
+  "transplantEnd",
+  "directStart",
+  "directEnd",
+  "harvestStart",
+  "harvestEnd",
   culture_time,
   spacing,
   row_spacing,
@@ -109,7 +123,14 @@ do update set
   crop = excluded.crop,
   variety = excluded.variety,
   method = excluded.method,
-  schedule = excluded.schedule,
+  "forsaddStart" = excluded."forsaddStart",
+  "forsaddEnd" = excluded."forsaddEnd",
+  "transplantStart" = excluded."transplantStart",
+  "transplantEnd" = excluded."transplantEnd",
+  "directStart" = excluded."directStart",
+  "directEnd" = excluded."directEnd",
+  "harvestStart" = excluded."harvestStart",
+  "harvestEnd" = excluded."harvestEnd",
   culture_time = excluded.culture_time,
   spacing = excluded.spacing,
   row_spacing = excluded.row_spacing,

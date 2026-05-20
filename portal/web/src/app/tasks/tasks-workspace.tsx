@@ -21,14 +21,21 @@ type TasksWorkspaceProps = {
 
 type ActivityKey = "forsadd" | "direktsadd" | "utplantering" | "skord";
 
-const ACTIVITY_META: Record<ActivityKey, { color: string; icon: string; label: string }> = {
-  forsadd: { color: "#7d96c9", icon: "⌂", label: "Försådd" },
-  direktsadd: { color: "#d59b48", icon: "↓", label: "Direktsådd" },
-  utplantering: { color: "#68a77a", icon: "☼", label: "Utplantering" },
-  skord: { color: "#c87967", icon: "♁", label: "Skörd" },
-};
-
 const ACTIVITY_ORDER: ActivityKey[] = ["forsadd", "direktsadd", "utplantering", "skord"];
+
+const ACTIVITY_META: Record<
+  ActivityKey,
+  {
+    color: string;
+    iconBg: string;
+    label: string;
+  }
+> = {
+  forsadd: { color: "#7d97c9", iconBg: "#eef2fb", label: "Försådd" },
+  direktsadd: { color: "#dbb063", iconBg: "#fcf2df", label: "Direktsådd" },
+  utplantering: { color: "#7ca98f", iconBg: "#edf5ef", label: "Utplantering" },
+  skord: { color: "#de8d7d", iconBg: "#fdeee9", label: "Skörd" },
+};
 
 function getIsoWeek(date = new Date()) {
   const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -75,19 +82,19 @@ function getShortTitle(task: TaskRow) {
 
 function getTiming(task: TaskRow, currentWeek: number) {
   if (task.status === "done") {
-    return { className: "is-done", label: "Utförd" };
+    return { className: "done", label: "Utförd" };
   }
 
   const week = getTaskWeek(task);
   if (week && week < currentWeek) {
-    return { className: "is-late", label: "Försenad" };
+    return { className: "late", label: "Försenad" };
   }
 
   if (week === currentWeek) {
-    return { className: "is-current", label: "Denna vecka" };
+    return { className: "current", label: "Denna vecka" };
   }
 
-  return { className: "is-upcoming", label: week ? `Vecka ${week}` : "Planerad" };
+  return { className: "upcoming", label: week ? `Kommer vecka ${week}` : "Planerad" };
 }
 
 function isRelevantTask(task: TaskRow, currentWeek: number) {
@@ -116,9 +123,13 @@ function getCropField(crop: CropRow | null, task: TaskRow) {
 }
 
 function getOccupancyRange(crop: CropRow) {
-  const start = crop.schedule.directStart ?? crop.schedule.transplantStart ?? crop.schedule.directEnd ?? crop.schedule.transplantEnd;
+  const start =
+    crop.schedule.directStart ??
+    crop.schedule.transplantStart ??
+    crop.schedule.directEnd ??
+    crop.schedule.transplantEnd;
   const end = crop.schedule.harvestEnd ?? crop.schedule.harvestStart;
-  return start && end ? { start, end } : null;
+  return start && end ? { end, start } : null;
 }
 
 function getOverfilledBeds(fields: FieldRow[], crops: CropRow[], week: number) {
@@ -139,6 +150,51 @@ function getOverfilledBeds(fields: FieldRow[], crops: CropRow[], week: number) {
     .sort((a, b) => b.percent - a.percent);
 }
 
+function ActivityIcon({ activity }: { activity: ActivityKey }) {
+  const common = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    strokeWidth: 1.8,
+    viewBox: "0 0 24 24",
+  };
+
+  const paths: Record<ActivityKey, React.ReactNode> = {
+    forsadd: (
+      <>
+        <path d="M12 19c-2.4-2.6-3.5-5-3-7.6 2.6.5 4.8 2.2 5.9 4.7" />
+        <path d="M12 19c0-5.6 2.6-9.8 7-12" />
+        <path d="M7 21h10" />
+      </>
+    ),
+    direktsadd: (
+      <>
+        <path d="M12 4v12" />
+        <path d="m8.5 12.5 3.5 3.5 3.5-3.5" />
+        <path d="M5 20h14" />
+      </>
+    ),
+    utplantering: (
+      <>
+        <path d="M12 3v18" />
+        <path d="M12 8c1.5-2 3.6-3.1 6-3-1.2 2.8-3.4 4.4-6 5" />
+        <path d="M12 11c-1.4-2.1-3.4-3.5-6-4 1 3 3.2 4.8 6 5.8" />
+      </>
+    ),
+    skord: (
+      <>
+        <path d="M8 11h8" />
+        <path d="M10 6h4" />
+        <path d="M7 11a5 5 0 1 0 10 0" />
+        <path d="M12 6V4" />
+      </>
+    ),
+  };
+
+  return <svg aria-hidden="true" {...common}>{paths[activity]}</svg>;
+}
+
 export function TasksWorkspace({
   completeSowingTask,
   completeTask,
@@ -154,6 +210,8 @@ export function TasksWorkspace({
   const [statusFilter, setStatusFilter] = useState<"open" | "all">("open");
   const [fieldFilter, setFieldFilter] = useState("alla");
   const [activeTypes, setActiveTypes] = useState<Set<ActivityKey>>(() => new Set(ACTIVITY_ORDER));
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   const filteredTasks = useMemo(
     () =>
@@ -172,7 +230,9 @@ export function TasksWorkspace({
     .filter((task) => activeTypes.has(getTaskActivity(task)));
   const doneRelevantTasks = relevantTasks.filter((task) => task.status === "done");
   const openRelevantTasks = relevantTasks.filter((task) => task.status !== "done");
-  const progress = relevantTasks.length ? Math.round((doneRelevantTasks.length / relevantTasks.length) * 100) : 100;
+  const progress = relevantTasks.length
+    ? Math.round((doneRelevantTasks.length / relevantTasks.length) * 100)
+    : 100;
   const overdueTasks = openRelevantTasks.filter((task) => (getTaskWeek(task) ?? currentWeek) < currentWeek);
   const currentWeekTasks = openRelevantTasks.filter((task) => getTaskWeek(task) === currentWeek);
   const overfilledBeds = getOverfilledBeds(fields, crops, currentWeek);
@@ -199,12 +259,54 @@ export function TasksWorkspace({
       <section className="today-panel">
         <div className="today-head">
           <div className="section-head__title-row">
-            <h2>Att göra</h2>
-            <button aria-label="Hjälp om idag" className="help-button" type="button">?</button>
+            <h2>Det här är närmast i odlingen</h2>
+            <div className="today-help-anchor">
+              <button
+                aria-label="Hjälp om idag"
+                className={`help-button ${showHelp ? "is-open" : ""}`}
+                type="button"
+                onClick={() => setShowHelp((current) => !current)}
+              >
+                ?
+              </button>
+
+              {showHelp ? (
+                <div className="today-help-popup">
+                  <div className="today-help-popup-grid">
+                    <article className="today-help-popup-item">
+                      <strong>Närmast i odlingen</strong>
+                      <p>Visar uppgifter som är aktuella nu eller inom de närmaste veckorna.</p>
+                    </article>
+                    <article className="today-help-popup-item">
+                      <strong>Filtrera snabbt</strong>
+                      <p>Välj aktivitet och bädd för att fokusera på precis det som ska göras.</p>
+                    </article>
+                    <article className="today-help-popup-item">
+                      <strong>Öppna ett kort</strong>
+                      <p>Klicka i rutan till höger för att så, plantera ut, skörda eller markera klart direkt.</p>
+                    </article>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
-          <div className="segmented-control">
-            <button className={`segment ${statusFilter === "open" ? "is-active" : ""}`} type="button" onClick={() => setStatusFilter("open")}>Ej utförda</button>
-            <button className={`segment ${statusFilter === "all" ? "is-active" : ""}`} type="button" onClick={() => setStatusFilter("all")}>Alla</button>
+          <div className="today-head__actions">
+            <div className="segmented-control">
+              <button
+                className={`segment ${statusFilter === "open" ? "is-active" : ""}`}
+                type="button"
+                onClick={() => setStatusFilter("open")}
+              >
+                Ej utförda
+              </button>
+              <button
+                className={`segment ${statusFilter === "all" ? "is-active" : ""}`}
+                type="button"
+                onClick={() => setStatusFilter("all")}
+              >
+                Alla
+              </button>
+            </div>
           </div>
         </div>
 
@@ -218,11 +320,13 @@ export function TasksWorkspace({
                 <button
                   className={`chip chip--legend ${activeTypes.has(key) ? "is-active" : ""}`}
                   key={key}
-                  style={{ "--accent": item.color } as CSSProperties}
+                  style={{ "--accent": item.color, "--icon-bg": item.iconBg } as CSSProperties}
                   type="button"
                   onClick={() => toggleType(key)}
                 >
-                  <span className="legend-icon">{item.icon}</span>
+                  <span className="legend-icon">
+                    <ActivityIcon activity={key} />
+                  </span>
                   <span>{item.label}</span>
                 </button>
               );
@@ -239,46 +343,67 @@ export function TasksWorkspace({
           </label>
         </div>
 
-        <div className="task-list">
+        <div className="task-list" id="task-list">
           {filteredTasks.length > 0 ? (
             filteredTasks.map((task) => {
               const activity = getTaskActivity(task);
               const meta = ACTIVITY_META[activity];
               const timing = getTiming(task, currentWeek);
-              const crop = getCrop(crops, task.cropId);
+              const isExpanded = expandedTaskId === task.id;
 
               return (
                 <article
-                  className={`task-card ${timing.className}`}
+                  className={`task-card task-card--${timing.className}`}
                   key={task.id}
-                  style={{ "--accent": meta.color } as CSSProperties}
+                  style={{ "--accent": meta.color, "--icon-bg": meta.iconBg } as CSSProperties}
                 >
-                  <div className="task-icon">{meta.icon}</div>
-                  <div className="task-body">
-                    <p className="task-title">{meta.label}: {getShortTitle(task)}</p>
-                    <p className="task-meta">
-                      Vecka {getTaskWeek(task) ?? "-"} · {getFieldName(fields, task.fieldId)}
-                      {task.status === "done" ? ` · Klar ${formatDate(task.completedAt)}` : ""}
-                    </p>
-                    {task.description ? <p className="task-description">{task.description}</p> : null}
-                    <span className={`task-timing-pill task-timing-pill--${timing.className.replace("is-", "")}`}>{timing.label}</span>
+                  <div className="task-card__main">
+                    <div className="task-icon">
+                      <ActivityIcon activity={activity} />
+                    </div>
+                    <div className="task-body">
+                      <p className="task-title">{meta.label}: {getShortTitle(task)}</p>
+                      <p className="task-meta">
+                        Vecka {getTaskWeek(task) ?? "-"} · {getFieldName(fields, task.fieldId)}
+                        {task.status === "done" ? ` · Klar ${formatDate(task.completedAt)}` : ""}
+                      </p>
+                      <span className={`task-timing-pill task-timing-pill--${timing.className}`}>{timing.label}</span>
+                    </div>
                   </div>
-                  <TaskAction
-                    activity={activity}
-                    completeSowingTask={completeSowingTask}
-                    completeTask={completeTask}
-                    completeTransplantTask={completeTransplantTask}
-                    crop={crop}
-                    registerHarvestForTask={registerHarvestForTask}
-                    stockBatches={stockBatches}
-                    task={task}
-                  />
+
+                  {task.status === "done" ? (
+                    <span className="task-checkbox task-checkbox--done" aria-hidden="true">✓</span>
+                  ) : (
+                    <button
+                      aria-label={isExpanded ? "Stäng uppgift" : "Öppna uppgift"}
+                      className={`task-checkbox ${isExpanded ? "is-active" : ""}`}
+                      type="button"
+                      onClick={() => setExpandedTaskId((current) => (current === task.id ? null : task.id))}
+                    />
+                  )}
+
+                  {task.status !== "done" && isExpanded ? (
+                    <div className="task-card__drawer">
+                      <TaskAction
+                        activity={activity}
+                        completeSowingTask={completeSowingTask}
+                        completeTask={completeTask}
+                        completeTransplantTask={completeTransplantTask}
+                        crop={getCrop(crops, task.cropId)}
+                        registerHarvestForTask={registerHarvestForTask}
+                        stockBatches={stockBatches}
+                        task={task}
+                      />
+                    </div>
+                  ) : null}
                 </article>
               );
             })
           ) : (
             <article className="task-card task-card--empty">
-              <div className="task-icon">{ACTIVITY_META.forsadd.icon}</div>
+              <div className="task-icon">
+                <ActivityIcon activity="forsadd" />
+              </div>
               <div className="task-body">
                 <p className="task-title">Inga uppgifter i valt filter</p>
                 <p className="task-meta">Välj fler bäddar eller visa alla uppgifter.</p>
@@ -290,7 +415,7 @@ export function TasksWorkspace({
 
       <aside className="today-panel today-panel--aside">
         <h2>Snabböversikt</h2>
-        <div className="stats-grid">
+        <div className="stats-grid" id="stats-grid">
           <article className="stats-card stats-card--progress">
             <div className="progress-ring" style={{ "--progress": `${progress}%` } as CSSProperties}>
               <strong>{progress}%</strong>
@@ -301,25 +426,29 @@ export function TasksWorkspace({
               <span>Veckans och försenade uppgifter slutförda</span>
             </div>
           </article>
+
           <article className="stats-card stats-card--warning">
             <strong>{overdueTasks.length}</strong>
             <span>Försenade uppgifter</span>
           </article>
+
           <article className="stats-card">
             <strong>{currentWeekTasks.length}</strong>
             <span>Uppgifter denna vecka</span>
           </article>
+
           <article className="stats-card">
             <strong>Veckans fokus</strong>
-            <div>
+            <div className="stats-pill-list">
               {(focusItems.length ? focusItems : ["Allt ser lugnt ut just nu."]).map((item) => (
                 <span key={item}>{item}</span>
               ))}
             </div>
           </article>
+
           <article className="stats-card">
             <strong>{overfilledBeds.length ? "Överbelagda bäddar" : "Bäddläge"}</strong>
-            <div>
+            <div className="stats-pill-list">
               {overfilledBeds.length ? (
                 overfilledBeds.slice(0, 3).map(({ field, percent }) => (
                   <span key={field.id}>{field.name} · {percent}%</span>
@@ -356,17 +485,13 @@ function TaskAction({
 }) {
   const cropField = getCropField(crop, task);
 
-  if (task.status === "done") {
-    return <span className="task-done-mark">✓</span>;
-  }
-
   if (activity === "skord") {
     return (
-      <form action={registerHarvestForTask} className="task-action-form">
+      <form action={registerHarvestForTask} className="task-action-form task-action-form--compact">
         <input name="taskId" type="hidden" value={task.id} />
         <input inputMode="decimal" name="kg" placeholder="kg" required />
-        <button className="portal-button-danger">Skörd</button>
-        <label><input name="moreToHarvest" type="checkbox" /> Mer kvar</label>
+        <button className="portal-button-primary">Registrera skörd</button>
+        <label><input name="moreToHarvest" type="checkbox" /> Mer kvar att skörda</label>
       </form>
     );
   }
@@ -379,7 +504,7 @@ function TaskAction({
     });
 
     return (
-      <form action={completeSowingTask} className="task-action-form">
+      <form action={completeSowingTask} className="task-action-form task-action-form--compact">
         <input name="taskId" type="hidden" value={task.id} />
         <select defaultValue={cropField?.seedStockBatchId ?? ""} name="stockBatchId" required>
           <option value="">Välj lagerpost</option>
@@ -389,28 +514,53 @@ function TaskAction({
             </option>
           ))}
         </select>
-        <input defaultValue={cropField?.plannedSeedCount ?? ""} inputMode="numeric" name="seedCount" placeholder="antal" required />
-        <button className="portal-button-primary">Sått</button>
+        <div className="task-action-form__row">
+          <input
+            defaultValue={cropField?.plannedSeedCount ?? ""}
+            inputMode="numeric"
+            name="seedCount"
+            placeholder="antal frön"
+            required
+          />
+          <button className="portal-button-primary">Markera som sådd</button>
+        </div>
       </form>
     );
   }
 
   if (activity === "utplantering") {
     return (
-      <form action={completeTransplantTask} className="task-action-form task-action-form--wide">
+      <form action={completeTransplantTask} className="task-action-form task-action-form--compact">
         <input name="taskId" type="hidden" value={task.id} />
-        <input defaultValue={cropField?.plannedSeedCount ?? ""} inputMode="numeric" name="plantCount" placeholder="plantor" />
-        <input defaultValue={cropField?.plannedRows ?? ""} inputMode="numeric" name="rowCount" placeholder="rader" />
-        <input defaultValue={cropField?.plannedAreaM2 ?? crop?.areaM2 ?? ""} inputMode="decimal" name="areaM2" placeholder="m²" />
-        <button className="portal-button-primary">Planterat</button>
+        <div className="task-action-form__row task-action-form__row--triple">
+          <input
+            defaultValue={cropField?.plannedSeedCount ?? ""}
+            inputMode="numeric"
+            name="plantCount"
+            placeholder="plantor"
+          />
+          <input
+            defaultValue={cropField?.plannedRows ?? ""}
+            inputMode="numeric"
+            name="rowCount"
+            placeholder="rader"
+          />
+          <input
+            defaultValue={cropField?.plannedAreaM2 ?? crop?.areaM2 ?? ""}
+            inputMode="decimal"
+            name="areaM2"
+            placeholder="m²"
+          />
+        </div>
+        <button className="portal-button-primary">Markera som planterad</button>
       </form>
     );
   }
 
   return (
-    <form action={completeTask}>
+    <form action={completeTask} className="task-action-form task-action-form--compact">
       <input name="taskId" type="hidden" value={task.id} />
-      <button className="portal-button-primary">Klar</button>
+      <button className="portal-button-primary">Markera som klar</button>
     </form>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { CSSProperties, FormEvent, PointerEvent } from "react";
+import { InlineHelpPopover } from "@/app/components/inline-help-popover";
 import type { FieldRow, SectionRow } from "@/lib/data/fields";
 
 const fieldTypes = [
@@ -310,7 +311,6 @@ export function FieldsWorkspace({
   const sectionDialogRef = useRef<HTMLDialogElement>(null);
   const editFieldDialogRef = useRef<HTMLDialogElement>(null);
   const editSectionDialogRef = useRef<HTMLDialogElement>(null);
-  const helpDialogRef = useRef<HTMLDialogElement>(null);
   const dragRef = useRef<{
     fieldId: string;
     moved: boolean;
@@ -591,7 +591,16 @@ export function FieldsWorkspace({
           <div>
             <div className="portal-fields-title-row">
               <h2 className="mt-1 text-2xl font-light tracking-[-0.04em] text-[var(--foreground)]">Översikt</h2>
-              <button aria-label="Hjälp om odlingsytor" className="portal-help-button" onClick={() => helpDialogRef.current?.showModal()} type="button">?</button>
+              <InlineHelpPopover
+                ariaLabel="Hjälp om odlingsytor"
+                buttonClassName="portal-help-button"
+                items={[
+                  { title: "Kartan", text: "Kartan visar hela odlingen. Du kan panorera, zooma och flytta ytor för att bygga upp din layout." },
+                  { title: "Skiften och bäddar", text: "Skiften håller ihop växtföljd och struktur. När du lägger till flera bäddar samtidigt placeras de i följd med mellanrum." },
+                  { title: "Till odlingen", text: "Knappen zoomar och flyttar vyn så att hela den aktuella odlingen får plats i kartfönstret." },
+                ]}
+                title="Odlingsytor"
+              />
             </div>
           </div>
           <div className="portal-fields-head__stats" aria-label="Sammanfattning av odlingsytor">
@@ -604,8 +613,8 @@ export function FieldsWorkspace({
         {error ? <p className="mt-4 rounded-xl border border-[var(--harvest)] bg-[#fff0ef] px-4 py-3 text-sm">{error}</p> : null}
 
         <div className="portal-field-actions-row">
-          <button className="portal-button-secondary" onClick={() => sectionDialogRef.current?.showModal()} type="button">Lägg till skifte</button>
-          <button className="portal-button-primary" onClick={() => fieldDialogRef.current?.showModal()} type="button">Lägg till yta</button>
+          <button className="portal-button-secondary" id="open-section-dialog" onClick={() => sectionDialogRef.current?.showModal()} type="button">Lägg till skifte</button>
+          <button className="portal-button-primary" id="open-field-dialog" onClick={() => fieldDialogRef.current?.showModal()} type="button">Lägg till yta</button>
         </div>
 
         <div className="portal-field-map-toolbar">
@@ -672,7 +681,7 @@ export function FieldsWorkspace({
       </section>
 
       <aside className="portal-fields-sidebar grid min-w-0 content-start gap-4">
-        <section className="portal-fields-sidebar-card rounded-[22px] border border-[var(--border)] bg-white/90 p-5 shadow-[0_18px_40px_rgba(22,58,54,0.06)]">
+        <section className="portal-fields-sidebar-card rounded-[22px] border border-[var(--border)] bg-white/90 p-5 shadow-[0_18px_40px_rgba(22,58,54,0.06)]" id="field-list">
           <div className="portal-fields-sidebar-head">
             <div>
               <p className="section-kicker">Skiften</p>
@@ -842,31 +851,6 @@ export function FieldsWorkspace({
         ) : null}
       </dialog>
 
-      <dialog className="portal-dialog" ref={helpDialogRef}>
-        <form className="portal-dialog__card portal-help-card" method="dialog">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-muted)]">Hjälp</p>
-            <h3 className="mt-1 text-2xl font-light tracking-[-0.04em]">Odlingsytor</h3>
-          </div>
-          <div className="portal-help-grid">
-            <article className="portal-help-item">
-              <strong>Kartan</strong>
-              <p>Kartan visar hela odlingen. Du kan panorera, zooma och flytta ytor för att bygga upp din layout.</p>
-            </article>
-            <article className="portal-help-item">
-              <strong>Skiften och bäddar</strong>
-              <p>Skiften håller ihop växtföljd och struktur. När du lägger till flera bäddar samtidigt placeras de i följd med mellanrum.</p>
-            </article>
-            <article className="portal-help-item">
-              <strong>Till odlingen</strong>
-              <p>Knappen zoomar och flyttar vyn så att hela den aktuella odlingen får plats i kartfönstret.</p>
-            </article>
-          </div>
-          <div className="flex justify-end">
-            <button className="portal-button-primary" type="submit">Stäng</button>
-          </div>
-        </form>
-      </dialog>
     </section>
   );
 }

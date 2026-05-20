@@ -1,5 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
+import { redirect } from "next/navigation";
+import { AppGuide } from "@/app/components/app-guide";
 import { signOut } from "@/app/auth/actions";
 import { PortalYearSelect } from "@/app/components/portal-year-select";
 import { portalModules, type PortalIcon, type PortalModule } from "@/app/lib/portal-data";
@@ -20,6 +22,7 @@ type PortalShellProps = {
 
 const navGroups = ["Arbeta", "Planera"] as const;
 const hiddenNavHrefs = new Set(["/seeds"]);
+const mobileNavHrefs = new Set(["/tasks", "/harvest", "/inventory", "/settings"]);
 const currentYear = new Date().getFullYear();
 const headerYears = Array.from({ length: 8 }, (_, index) => currentYear - 5 + index);
 
@@ -98,6 +101,7 @@ function NavItem({
   return (
     <Link
       className={`nav-item ${isActive ? "is-active" : ""}`}
+      data-guide-page={module.href}
       href={module.href}
     >
       <span className="nav-item__icon">
@@ -185,9 +189,15 @@ export async function PortalShell({
   children,
 }: PortalShellProps) {
   const authState = await getCurrentAuthState();
+
+  if (!authState.user) {
+    redirect("/login");
+  }
+
   const activeWorkspace = authState.workspaces[0] ?? null;
   const footerModule = portalModules.find((module) => module.group === "Portal");
   const navModules = portalModules.filter((module) => !hiddenNavHrefs.has(module.href));
+  const mobileModules = navModules.filter((module) => mobileNavHrefs.has(module.href));
   const [headerStats, workspacePreferences] = await Promise.all([
     getHeaderStats(),
     activeWorkspace
@@ -200,7 +210,7 @@ export async function PortalShell({
     <main className={`min-h-screen ${isFieldsPage ? "fields-page-frame" : ""}`}>
       <div className="app-shell">
         <aside className="sidebar">
-          <Link href="/" className="brand-block">
+          <Link href="/tasks" className="brand-block">
             <span className="brand-mark" aria-hidden="true">
               <Image alt="" height={86} priority src="/bjorkbacka-mark.svg" width={86} />
             </span>
@@ -240,6 +250,34 @@ export async function PortalShell({
         </aside>
 
         <section className={`content ${isFieldsPage ? "content--fields" : ""}`}>
+          <div className="mobile-topbar">
+            <details className="mobile-nav">
+              <summary className="mobile-nav__toggle" aria-label="Öppna meny">
+                <span />
+                <span />
+                <span />
+              </summary>
+              <div className="mobile-nav__panel">
+                <div className="mobile-nav__head">
+                  <span className="mobile-nav__brand-label">Lilla björkbacka</span>
+                  <strong>Odlingskalender</strong>
+                </div>
+                <nav className="mobile-nav__list" aria-label="Mobilnavigation">
+                  {mobileModules.map((module) => (
+                    <NavItem activeHref={activeHref} key={module.href} module={module} />
+                  ))}
+                </nav>
+                <form action={signOut} className="mobile-nav__logout">
+                  <button type="submit">Logga ut</button>
+                </form>
+              </div>
+            </details>
+
+            <Link href="/tasks" className="mobile-topbar__brand">
+              Odlingskalender
+            </Link>
+          </div>
+
           {title ? (
             <header className="topbar">
               <div className="topbar-main">
@@ -277,6 +315,7 @@ export async function PortalShell({
           {children}
         </section>
       </div>
+      <AppGuide />
     </main>
   );
 }

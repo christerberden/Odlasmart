@@ -16,7 +16,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   ]);
 
   if (authState.user) {
-    redirect("/onboarding");
+    redirect(authState.workspaces.length > 0 ? "/tasks" : "/onboarding");
   }
 
   return (

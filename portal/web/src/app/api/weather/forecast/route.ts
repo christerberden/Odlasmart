@@ -1,5 +1,15 @@
 import { NextResponse } from "next/server";
 
+type DailyForecast = {
+  code: number;
+  date: string;
+  label: string;
+  max: number;
+  min: number;
+  precipitation: number;
+  rainAmount: number;
+};
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -79,11 +89,12 @@ function buildSmhiDailyForecast(timeSeries: Array<{ data?: Record<string, unknow
   return [...dayMap.values()].map((day) => ({
     code: day.code,
     date: day.date,
+    label: describeWeatherCode(day.code),
     max: Math.round(Number.isFinite(day.max) ? day.max : 0),
     min: Math.round(Number.isFinite(day.min) ? day.min : 0),
     precipitation: Math.round(day.precipitation),
     rainAmount: Number(day.rainAmount.toFixed(1)),
-  })).slice(0, 7);
+  })) as DailyForecast[];
 }
 
 function getWeatherAdvice(nextDays: Array<{ code: number; max: number; min: number; precipitation: number; rainAmount: number }>) {
@@ -208,6 +219,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     advice: getWeatherAdvice(daily),
     currentTemp,
+    daily: daily.slice(0, 7),
     label: describeWeatherCode(currentCode),
     locationName: name || "Vald plats",
     maxTemp: Math.round(daily[0]?.max ?? currentTemp),
