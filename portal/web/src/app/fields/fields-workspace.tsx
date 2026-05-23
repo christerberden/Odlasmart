@@ -34,6 +34,13 @@ type Placement = {
   y: number;
 };
 
+type Bounds = {
+  maxX: number;
+  maxY: number;
+  minX: number;
+  minY: number;
+};
+
 type FieldsWorkspaceProps = {
   sections: SectionRow[];
   fields: FieldRow[];
@@ -83,16 +90,16 @@ function getFieldStyle(field: FieldRow, placement: Placement, zoom: number, offs
 
   return {
     ["--content-rotation" as string]: `${-placement.rotationDeg}deg`,
-    ["--plot-height" as string]: `${size.height * zoom}px`,
+    ["--plot-height" as string]: `${size.height}px`,
     ["--plot-visual-height" as string]: `${visualHeight}px`,
     ["--plot-visual-width" as string]: `${visualWidth}px`,
-    ["--plot-width" as string]: `${size.width * zoom}px`,
-    height: `${size.height * zoom}px`,
-    left: `${(placement.x + offset.x) * zoom}px`,
-    top: `${(placement.y + offset.y) * zoom}px`,
+    ["--plot-width" as string]: `${size.width}px`,
+    height: `${size.height}px`,
+    left: `${placement.x + offset.x}px`,
+    top: `${placement.y + offset.y}px`,
     transform: `rotate(${placement.rotationDeg}deg)`,
     transformOrigin: "center center",
-    width: `${size.width * zoom}px`,
+    width: `${size.width}px`,
   };
 }
 
@@ -152,7 +159,7 @@ function getRotatedBounds(field: FieldRow, placement: Placement) {
   };
 }
 
-function getCanvasOffset(bounds: { minX: number; minY: number }) {
+function getCanvasOffset(bounds: Bounds) {
   return {
     x: Math.max(0, 48 - bounds.minX),
     y: Math.max(0, 48 - bounds.minY),
@@ -179,10 +186,9 @@ function clampZoom(nextZoom: number) {
   return Math.min(Math.max(nextZoom, 0.05), 1.75);
 }
 
-function getFitZoom(bounds: ReturnType<typeof getGardenBounds>, viewportWidth: number, viewportHeight: number) {
-  const padding = 96;
-  const availableWidth = Math.max(viewportWidth - padding, 1);
-  const availableHeight = Math.max(viewportHeight - padding, 1);
+function getFitZoom(bounds: Bounds, viewportWidth: number, viewportHeight: number) {
+  const availableWidth = Math.max(viewportWidth - 96, 1);
+  const availableHeight = Math.max(viewportHeight - 96, 1);
   const spanX = Math.max(bounds.maxX - bounds.minX, 1);
   const spanY = Math.max(bounds.maxY - bounds.minY, 1);
 
@@ -300,6 +306,7 @@ export function FieldsWorkspace({
   const [selectedSectionId, setSelectedSectionId] = useState(initialSectionId ?? sections[0]?.id ?? null);
   const [zoom, setZoom] = useState(1);
   const [occupancyWeek, setOccupancyWeek] = useState(1);
+  const [mapViewport, setMapViewport] = useState({ height: 0, width: 0 });
   const [placements, setPlacements] = useState<Record<string, Placement>>(() =>
     Object.fromEntries(fields.map((field, index) => [field.id, getInitialPlacement(field, index)])),
   );
@@ -311,6 +318,7 @@ export function FieldsWorkspace({
   const sectionDialogRef = useRef<HTMLDialogElement>(null);
   const editFieldDialogRef = useRef<HTMLDialogElement>(null);
   const editSectionDialogRef = useRef<HTMLDialogElement>(null);
+  const manualZoomAtRef = useRef(0);
   const dragRef = useRef<{
     fieldId: string;
     moved: boolean;
@@ -357,19 +365,47 @@ export function FieldsWorkspace({
     : "Utan skifte";
   const mapCanvasMetrics = useMemo(() => {
     if (fields.length === 0) {
-      return { height: 900, offsetX: 0, offsetY: 0, width: 1400 };
+      const scaledWidth = 1400 * zoom;
+      const scaledHeight = 900 * zoom;
+      const canvasWidth = Math.max(scaledWidth, mapViewport.width);
+      const canvasHeight = Math.max(scaledHeight, mapViewport.height);
+
+      return {
+        canvasHeight,
+        canvasWidth,
+        height: 900,
+        offsetX: 0,
+        offsetY: 0,
+        scaledHeight,
+        scaledWidth,
+        stageInsetX: Math.max(0, (canvasWidth - scaledWidth) / 2),
+        stageInsetY: 0,
+        width: 1400,
+      };
     }
 
     const bounds = getGardenBounds(fields, placements);
     const offset = getCanvasOffset(bounds);
+    const width = Math.max(1400, Math.ceil(bounds.maxX + offset.x + 120));
+    const height = Math.max(900, Math.ceil(bounds.maxY + offset.y + 120));
+    const scaledWidth = width * zoom;
+    const scaledHeight = height * zoom;
+    const canvasWidth = Math.max(scaledWidth, mapViewport.width);
+    const canvasHeight = Math.max(scaledHeight, mapViewport.height);
 
     return {
-      height: Math.max(900, Math.ceil((bounds.maxY + offset.y + 120) * zoom)),
+      canvasHeight,
+      canvasWidth,
+      height,
       offsetX: offset.x,
       offsetY: offset.y,
-      width: Math.max(1400, Math.ceil((bounds.maxX + offset.x + 120) * zoom)),
+      scaledHeight,
+      scaledWidth,
+      stageInsetX: Math.max(0, (canvasWidth - scaledWidth) / 2),
+      stageInsetY: 0,
+      width,
     };
-  }, [fields, placements, zoom]);
+  }, [fields, mapViewport.height, mapViewport.width, placements, zoom]);
   const selectedFieldStatus = selectedFieldCropSummary
     ? `Planerad för ${selectedFieldCropSummary}`
     : "Ingen gröda planerad ännu.";
@@ -408,15 +444,13 @@ export function FieldsWorkspace({
     const mapElement = mapRef.current;
     if (!mapElement || fields.length === 0 || typeof ResizeObserver === "undefined") return;
 
-    let frame = 0;
+    setMapViewport({ height: mapElement.clientHeight, width: mapElement.clientWidth });
     const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => fitGardenToView());
+      setMapViewport({ height: mapElement.clientHeight, width: mapElement.clientWidth });
     });
     observer.observe(mapElement);
 
     return () => {
-      cancelAnimationFrame(frame);
       observer.disconnect();
     };
   }, [fields.length]);
@@ -448,25 +482,64 @@ export function FieldsWorkspace({
     setZoom(clampZoom(nextZoom));
   }
 
+  function updateZoomWithViewportFocus(nextZoom: number) {
+    const mapElement = mapRef.current;
+    const boundedZoom = clampZoom(nextZoom);
+
+    if (!mapElement || boundedZoom === zoom) {
+      updateZoom(boundedZoom);
+      return;
+    }
+
+    const focusX = Math.max(0, (mapElement.scrollLeft + mapElement.clientWidth / 2 - mapCanvasMetrics.stageInsetX) / zoom);
+    const focusY = Math.max(0, (mapElement.scrollTop + mapElement.clientHeight / 2) / zoom);
+    const nextScaledWidth = mapCanvasMetrics.width * boundedZoom;
+    const nextScaledHeight = mapCanvasMetrics.height * boundedZoom;
+    const nextStageInsetX = Math.max(0, (Math.max(nextScaledWidth, mapElement.clientWidth) - nextScaledWidth) / 2);
+
+    manualZoomAtRef.current = Date.now();
+    setZoom(boundedZoom);
+
+    requestAnimationFrame(() => {
+      mapElement.scrollTo({
+        left: nextScaledWidth <= mapElement.clientWidth
+          ? 0
+          : Math.max(0, nextStageInsetX + focusX * boundedZoom - mapElement.clientWidth / 2),
+        top: nextScaledHeight <= mapElement.clientHeight
+          ? 0
+          : Math.max(0, focusY * boundedZoom - mapElement.clientHeight / 2),
+      });
+    });
+  }
+
   function fitGardenToView() {
-    if (!mapRef.current || fields.length === 0) {
+    const mapElement = mapRef.current;
+
+    if (!mapElement || fields.length === 0) {
       updateZoom(1);
       return;
     }
+
     const bounds = getGardenBounds(fields, placements);
     const offset = getCanvasOffset(bounds);
     const spanX = Math.max(bounds.maxX - bounds.minX, 1);
     const spanY = Math.max(bounds.maxY - bounds.minY, 1);
-    const nextZoom = getFitZoom(bounds, mapRef.current.clientWidth, mapRef.current.clientHeight);
+    const nextZoom = getFitZoom(bounds, mapElement.clientWidth, mapElement.clientHeight);
+
+    manualZoomAtRef.current = Date.now();
     updateZoom(nextZoom);
+
     requestAnimationFrame(() => requestAnimationFrame(() => {
       const scaledMinX = (bounds.minX + offset.x) * nextZoom;
       const scaledMinY = (bounds.minY + offset.y) * nextZoom;
       const scaledSpanX = spanX * nextZoom;
       const scaledSpanY = spanY * nextZoom;
-      mapRef.current?.scrollTo({
-        left: Math.max(0, scaledMinX - (mapRef.current.clientWidth - scaledSpanX) / 2),
-        top: Math.max(0, scaledMinY - (mapRef.current.clientHeight - scaledSpanY) / 2),
+      const stageWidth = Math.max(1400, Math.ceil(bounds.maxX + offset.x + 120));
+      const scaledStageWidth = stageWidth * nextZoom;
+      const stageInsetX = Math.max(0, (Math.max(mapElement.clientWidth, scaledStageWidth) - scaledStageWidth) / 2);
+      mapElement.scrollTo({
+        left: Math.max(0, stageInsetX + scaledMinX - (mapElement.clientWidth - scaledSpanX) / 2),
+        top: Math.max(0, scaledMinY - (mapElement.clientHeight - scaledSpanY) / 2),
       });
     }));
   }
@@ -504,8 +577,8 @@ export function FieldsWorkspace({
       drag.moved = true;
     }
 
-    const nextX = Math.max(0, drag.startX + (event.clientX - drag.startClientX) / zoom);
-    const nextY = Math.max(0, drag.startY + (event.clientY - drag.startClientY) / zoom);
+    const nextX = drag.startX + (event.clientX - drag.startClientX) / zoom;
+    const nextY = drag.startY + (event.clientY - drag.startClientY) / zoom;
     setPlacements((current) => ({
       ...current,
       [drag.fieldId]: {
@@ -524,8 +597,8 @@ export function FieldsWorkspace({
 
     const placement = {
       ...(placements[drag.fieldId] ?? { rotationDeg: 0, x: drag.startX, y: drag.startY }),
-      x: Math.max(0, drag.startX + (event.clientX - drag.startClientX) / zoom),
-      y: Math.max(0, drag.startY + (event.clientY - drag.startClientY) / zoom),
+      x: drag.startX + (event.clientX - drag.startClientX) / zoom,
+      y: drag.startY + (event.clientY - drag.startClientY) / zoom,
     };
     dragRef.current = null;
     setPlacements((current) => ({ ...current, [drag.fieldId]: placement }));
@@ -622,10 +695,10 @@ export function FieldsWorkspace({
             <span>Beläggning vecka {occupancyWeek}</span>
             <input max="52" min="1" onChange={(event) => setOccupancyWeek(Number(event.target.value))} step="1" type="range" value={occupancyWeek} />
           </label>
-          <button className="portal-button-secondary" onClick={() => updateZoom(zoom - 0.1)} type="button">-</button>
+          <button className="portal-button-secondary" onClick={() => updateZoomWithViewportFocus(zoom - 0.1)} type="button">-</button>
           <span className="portal-zoom-label">{Math.round(zoom * 100)}%</span>
-          <button className="portal-button-secondary" onClick={() => updateZoom(zoom + 0.1)} type="button">+</button>
-          <button className="portal-button-secondary" onClick={() => updateZoom(1)} type="button">Återställ</button>
+          <button className="portal-button-secondary" onClick={() => updateZoomWithViewportFocus(zoom + 0.1)} type="button">+</button>
+          <button className="portal-button-secondary" onClick={() => updateZoomWithViewportFocus(1)} type="button">Återställ</button>
           <button className="portal-button-secondary" onClick={fitGardenToView} type="button">Till odlingen</button>
           <button className="portal-button-secondary" onClick={toggleFullscreen} type="button">{isFullscreen ? "Lämna helskärm" : "Helskärm"}</button>
           {isPending ? <span className="text-xs text-[var(--ink-muted)]">Sparar placering...</span> : null}
@@ -640,36 +713,47 @@ export function FieldsWorkspace({
           ref={mapRef}
         >
           {fields.length > 0 ? (
-            <div className="portal-field-map__canvas" style={{ height: mapCanvasMetrics.height, width: mapCanvasMetrics.width }}>
-              {fields.map((field, index) => {
-                const placement = placements[field.id] ?? getInitialPlacement(field, index);
-                const isSelected = field.id === selectedField?.id;
-                const sectionColor = getSectionColor(field.sectionId, sections);
-                const rotateLabel = shouldRotateFieldLabel(field, placement, zoom);
-                const fieldStyle = {
-                  ...getFieldStyle(field, placement, zoom, { x: mapCanvasMetrics.offsetX, y: mapCanvasMetrics.offsetY }),
-                  ["--section-color" as string]: sectionColor,
-                } as CSSProperties;
-                return (
-                  <button
-                    aria-current={isSelected ? "true" : undefined}
-                    className={`portal-field-plot-link ${isSelected ? "is-selected" : ""}`}
-                    key={field.id}
-                    onPointerDown={(event) => handlePointerDown(event, field)}
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
-                    style={fieldStyle}
-                    type="button"
-                  >
-                    <div className={getPlotClasses(field.type)}>
-                      <span className="portal-field-plot__surface" aria-hidden="true" />
-                      <div className={`portal-field-plot__content relative z-10 ${rotateLabel ? "is-vertical-label" : ""}`}>
-                        <span title={field.name}>{field.name}</span>
+            <div className="portal-field-map__canvas" style={{ height: mapCanvasMetrics.canvasHeight, width: mapCanvasMetrics.canvasWidth }}>
+              <div
+                className="portal-field-map__stage"
+                style={{
+                  height: mapCanvasMetrics.height,
+                  left: mapCanvasMetrics.stageInsetX,
+                  top: mapCanvasMetrics.stageInsetY,
+                  transform: `scale(${zoom})`,
+                  width: mapCanvasMetrics.width,
+                }}
+              >
+                {fields.map((field, index) => {
+                  const placement = placements[field.id] ?? getInitialPlacement(field, index);
+                  const isSelected = field.id === selectedField?.id;
+                  const sectionColor = getSectionColor(field.sectionId, sections);
+                  const rotateLabel = shouldRotateFieldLabel(field, placement, zoom);
+                  const fieldStyle = {
+                    ...getFieldStyle(field, placement, zoom, { x: mapCanvasMetrics.offsetX, y: mapCanvasMetrics.offsetY }),
+                    ["--section-color" as string]: sectionColor,
+                  } as CSSProperties;
+                  return (
+                    <button
+                      aria-current={isSelected ? "true" : undefined}
+                      className={`portal-field-plot-link ${isSelected ? "is-selected" : ""}`}
+                      key={field.id}
+                      onPointerDown={(event) => handlePointerDown(event, field)}
+                      onPointerMove={handlePointerMove}
+                      onPointerUp={handlePointerUp}
+                      style={fieldStyle}
+                      type="button"
+                    >
+                      <div className={getPlotClasses(field.type)}>
+                        <span className="portal-field-plot__surface" aria-hidden="true" />
+                        <div className={`portal-field-plot__content relative z-10 ${rotateLabel ? "is-vertical-label" : ""}`}>
+                          <span title={field.name}>{field.name}</span>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           ) : (
             <div className="grid min-h-[420px] place-content-center text-center">
