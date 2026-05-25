@@ -3,7 +3,7 @@
 !/.gitignore
 !/.github/
 !/.github/workflows/
-!/.github/workflows/**
+!/.github/workflows/deploy-web-cloudflare.yml
 !/portal/
 /portal/*
 !/portal/web/

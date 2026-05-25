@@ -233,23 +233,23 @@ export function SettingsWorkspace({
       <section className="settings-mobile-layout">
         <section className="settings-original-panel">
           <h2>Utseende</h2>
-          <p>VÃ¤lj om appen ska visas i ljust eller mÃ¶rkt tema.</p>
+          <p>Välj om appen ska visas i ljust eller mörkt tema.</p>
           <div className="segmented-control settings-theme-switcher">
             <button className={`segment ${theme === "light" ? "is-active" : ""}`} type="button" onClick={() => updateTheme("light")}>Ljust</button>
-            <button className={`segment ${theme === "dark" ? "is-active" : ""}`} type="button" onClick={() => updateTheme("dark")}>MÃ¶rkt</button>
+            <button className={`segment ${theme === "dark" ? "is-active" : ""}`} type="button" onClick={() => updateTheme("dark")}>Mörkt</button>
           </div>
         </section>
 
         <section className="settings-original-panel">
-          <h2>Kom igÃ¥ng</h2>
-          <p>Ã–ppna en stegvis guide som visar hur appen Ã¤r uppbyggd och hur du rÃ¶r dig mellan de viktigaste sidorna.</p>
+          <h2>Kom igång</h2>
+          <p>Öppna en stegvis guide som visar hur appen är uppbyggd och hur du rör dig mellan de viktigaste sidorna.</p>
           <button className="portal-button portal-button--primary" type="button" onClick={() => openAppGuide()}>Visa guide</button>
         </section>
 
         <section className="settings-original-panel">
-          <h2>VÃ¤derplats</h2>
-          <p className="settings-inline-note">{weatherLocation ? `VÃ¤derplats: ${weatherLocation.name}` : "Ingen vÃ¤derplats vald Ã¤n."}</p>
-          <p>StÃ¤ll in vilken ort vÃ¤derwidgeten ska anvÃ¤nda.</p>
+          <h2>Väderplats</h2>
+          <p className="settings-inline-note">{weatherLocation ? `Väderplats: ${weatherLocation.name}` : "Ingen väderplats vald än."}</p>
+          <p>Ställ in vilken ort väderwidgeten ska använda.</p>
           <form className="settings-weather-form" onSubmit={saveWeatherLocation}>
             <label htmlFor="weather-location-query-mobile">Ort</label>
             <div className="settings-weather-form__row">
@@ -270,7 +270,7 @@ export function SettingsWorkspace({
                 </datalist>
               </div>
               <button className="portal-button portal-button--primary" disabled={weatherSaving} type="submit">
-                {weatherSaving ? "Sparar..." : "Spara vÃ¤derplats"}
+                {weatherSaving ? "Sparar..." : "Spara väderplats"}
               </button>
             </div>
             {weatherStatus ? <p className="settings-inline-note">{weatherStatus}</p> : null}
@@ -278,9 +278,9 @@ export function SettingsWorkspace({
         </section>
 
         <section className="settings-original-panel">
-          <h2>Externa datakÃ¤llor</h2>
-          <p>Weather data Â© SMHI (CC BY 4.0)</p>
-          <p>Modified and processed by Lilla bjÃ¶rkbacka.</p>
+          <h2>Externa datakällor</h2>
+          <p>Weather data © SMHI (CC BY 4.0)</p>
+          <p>Modified and processed by Lilla björkbacka.</p>
         </section>
       </section>
 

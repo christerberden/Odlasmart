@@ -350,16 +350,22 @@ function getMarkerOffsetPx(index: number, total: number) {
   return (index - (total - 1) / 2) * 12;
 }
 
-type TimelineMarkerItem = (ReturnType<typeof getScheduleRanges>[number] & {
+type ScheduleRangeItem = ReturnType<typeof getScheduleRanges>[number] & {
   key: ActivityKey;
   range: { start: number; end: number };
-}) & {
+};
+
+type TimelineMarkerItem = ScheduleRangeItem & {
   markerOffsetPx: number;
 };
 
+function hasScheduleRange(item: ReturnType<typeof getScheduleRanges>[number]): item is ScheduleRangeItem {
+  return item.range != null;
+}
+
 function getTimelineMarkers(crop: CropRow, activeTypes: Set<ActivityKey>, selectedYear: number): TimelineMarkerItem[] {
-  const items = getScheduleRanges(crop.schedule).filter((item): item is TimelineMarkerItem => (
-    Boolean(item.range) && activeTypes.has(item.key as ActivityKey)
+  const items = getScheduleRanges(crop.schedule).filter((item): item is ScheduleRangeItem => (
+    hasScheduleRange(item) && activeTypes.has(item.key as ActivityKey)
     && getActivityYear(crop, item.range) === selectedYear
   ));
   const totalsByWeek = new Map<number, number>();
@@ -534,7 +540,9 @@ export function CropsWorkspace({
   const [familyFilter, setFamilyFilter] = useState("alla");
   const [statusFilter, setStatusFilter] = useState("alla");
   const [sortBy, setSortBy] = useState("field");
-  const [activeTypes, setActiveTypes] = useState(() => new Set(Object.keys(ACTIVITY_META)));
+  const [activeTypes, setActiveTypes] = useState<Set<ActivityKey>>(() => (
+    new Set(Object.keys(ACTIVITY_META) as ActivityKey[])
+  ));
   const [dragState, setDragState] = useState<DragState>(null);
   const [editingCrop, setEditingCrop] = useState<CropRow | null>(null);
   const currentWeek = getIsoWeek();
@@ -719,7 +727,7 @@ export function CropsWorkspace({
     void purchaseShoppingSeedsAction(formData);
   }
 
-  function toggleType(type: string) {
+  function toggleType(type: ActivityKey) {
     setActiveTypes((current) => {
       const next = new Set(current);
       if (next.has(type) && next.size > 1) {
@@ -820,7 +828,7 @@ export function CropsWorkspace({
 
           <div className="timeline-toolbar">
             <div className="timeline-legend" aria-label="Visa moment">
-              {Object.entries(ACTIVITY_META).map(([key, item]) => (
+              {(Object.entries(ACTIVITY_META) as [ActivityKey, (typeof ACTIVITY_META)[ActivityKey]][]).map(([key, item]) => (
                 <button
                   className={activeTypes.has(key) ? "is-active" : ""}
                   key={key}
