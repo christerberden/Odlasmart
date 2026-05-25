@@ -1,6 +1,9 @@
 # Keep this repository focused on the web portal only.
 *
 !/.gitignore
+!/.github/
+!/.github/workflows/
+!/.github/workflows/**
 !/portal/
 /portal/*
 !/portal/web/
