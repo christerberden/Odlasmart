@@ -12,6 +12,7 @@ import {
 import { FieldsWorkspace } from "@/app/fields/fields-workspace";
 import { getCurrentAuthState } from "@/lib/auth/workspaces";
 import { getCrops } from "@/lib/data/crops";
+import { buildFamilyOptions, DEFAULT_FAMILY_OPTIONS } from "@/lib/data/family-options";
 import { getFields, getSections } from "@/lib/data/fields";
 import { getPersonalSeeds, getSeedTemplateOptions } from "@/lib/data/seeds";
 
@@ -19,16 +20,24 @@ type FieldsPageProps = {
   searchParams: Promise<{
     error?: string;
     field?: string;
+    year?: string;
     section?: string;
     newField?: string;
   }>;
 };
 
+function getSelectedYear(value: string | undefined) {
+  const currentYear = new Date().getFullYear();
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed) : currentYear;
+}
+
 export default async function FieldsPage({ searchParams }: FieldsPageProps) {
-  const [{ error, field, section, newField }, authState] = await Promise.all([
+  const [{ error, field, section, newField, year }, authState] = await Promise.all([
     searchParams,
     getCurrentAuthState(),
   ]);
+  const selectedYear = getSelectedYear(year);
   const activeWorkspace = authState.workspaces[0] ?? null;
   const [sections, fields, crops, personalSeeds, seedTemplates] = activeWorkspace
     ? await Promise.all([
@@ -39,17 +48,11 @@ export default async function FieldsPage({ searchParams }: FieldsPageProps) {
         getSeedTemplateOptions(),
       ])
     : [[], [], [], [], []];
-  const familyOptions = Array.from(
-    [...personalSeeds, ...seedTemplates].reduce((families, seed) => {
-      const family = seed.family.trim();
-      if (!family) return families;
-      const key = family.toLocaleLowerCase("sv-SE");
-      if (!families.has(key)) {
-        families.set(key, family.charAt(0).toLocaleUpperCase("sv-SE") + family.slice(1));
-      }
-      return families;
-    }, new Map<string, string>()).values(),
-  ).sort((left, right) => left.localeCompare(right, "sv", { sensitivity: "base" }));
+  const familyOptions = buildFamilyOptions([
+    ...DEFAULT_FAMILY_OPTIONS,
+    ...personalSeeds.map((seed) => seed.family),
+    ...seedTemplates.map((seed) => seed.family),
+  ]);
 
   return (
     <ModulePage href="/fields" focus={[]} firstBuild={[]}>
@@ -88,6 +91,7 @@ export default async function FieldsPage({ searchParams }: FieldsPageProps) {
           initialFieldId={field}
           initialSectionId={section}
           openNewFieldOnLoad={newField === "1"}
+          selectedYear={selectedYear}
           sections={sections}
           updateFieldAction={updateField}
           updateFieldPlacementAction={updateFieldPlacement}

@@ -122,6 +122,10 @@ function getCropField(crop: CropRow | null, task: TaskRow) {
   return crop.fields.find((field) => field.fieldId === task.fieldId) ?? crop.fields[0] ?? null;
 }
 
+function formatDecimalInput(value: number | null | undefined) {
+  return value == null ? "" : value.toLocaleString("sv-SE", { maximumFractionDigits: 2 });
+}
+
 function getOccupancyRange(crop: CropRow) {
   const start =
     crop.schedule.directStart ??
@@ -546,7 +550,7 @@ function TaskAction({
             placeholder="rader"
           />
           <input
-            defaultValue={cropField?.plannedAreaM2 ?? crop?.areaM2 ?? ""}
+            defaultValue={formatDecimalInput(cropField?.plannedAreaM2 ?? crop?.areaM2)}
             inputMode="decimal"
             name="areaM2"
             placeholder="m²"

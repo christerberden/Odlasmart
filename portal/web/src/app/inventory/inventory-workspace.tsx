@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { AppModal } from "@/app/components/app-modal";
 import { InlineHelpPopover } from "@/app/components/inline-help-popover";
 import type { SeedStockBatchRow } from "@/lib/data/inventory";
 import type { PersonalSeedRow, SeedSchedule, SeedTemplateOption } from "@/lib/data/seeds";
@@ -74,22 +75,6 @@ const EMPTY_SCHEDULE: SeedSchedule = {
   harvestStart: null,
   harvestEnd: null,
 };
-
-function formatRange(start: number | null, end: number | null) {
-  if (start && end) {
-    return `v.${start}-${end}`;
-  }
-
-  if (start) {
-    return `från v.${start}`;
-  }
-
-  if (end) {
-    return `till v.${end}`;
-  }
-
-  return "-";
-}
 
 function normalizeFamily(value: string) {
   return value
@@ -199,8 +184,6 @@ function rowsToCsv(rows: SeedStockRow[]) {
     "cultureTime",
     "spacing",
     "rowSpacing",
-    "seedPer75",
-    "seedPerM2",
     "quantity",
     "purchaseYear",
     "expirationYear",
@@ -227,8 +210,6 @@ function rowsToCsv(rows: SeedStockRow[]) {
       row.cultureTime,
       row.spacing,
       row.rowSpacing,
-      row.seedPer75,
-      row.seedPerM2,
       row.quantity,
       row.purchaseYear,
       row.expirationYear,
@@ -238,14 +219,29 @@ function rowsToCsv(rows: SeedStockRow[]) {
   ].join("\n");
 }
 
+function getCsvTemplate() {
+  return rowsToCsv([]);
+}
+
 function downloadFile(filename: string, content: string, type: string) {
-  const blob = new Blob([content], { type });
+  const csvWithBom = type.includes("charset=utf-8") ? `\uFEFF${content}` : content;
+  const blob = new Blob([csvWithBom], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+async function readCsvFile(file: File) {
+  const buffer = await file.arrayBuffer();
+
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    return new TextDecoder("windows-1252").decode(buffer);
+  }
 }
 
 function parseCsvLine(line: string) {
@@ -316,6 +312,8 @@ export function InventoryWorkspace({
   const [view, setView] = useState<"all" | "stocked">("all");
   const [sort, setSort] = useState<{ key: SortKey; direction: "asc" | "desc" }>({ key: "crop", direction: "asc" });
   const [dialogMode, setDialogMode] = useState<"list" | "manual">("list");
+  const [importNoticeOpen, setImportNoticeOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [selectedRow, setSelectedRow] = useState<SeedStockRow | null>(null);
   const rows = getRows(personalSeeds, stockBatches);
@@ -377,15 +375,19 @@ export function InventoryWorkspace({
     downloadFile(filename, rowsToCsv(rows), "text/csv;charset=utf-8");
   }
 
+  function downloadImportTemplate() {
+    downloadFile("mina-froer-importmall.csv", getCsvTemplate(), "text/csv;charset=utf-8");
+  }
+
   async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const content = await file.text();
+    const content = await readCsvFile(file);
     const parsedRows = csvToImportRows(content);
 
     if (parsedRows.length === 0) {
-      alert("Importfilen innehöll inga frörader.");
+      setImportNoticeOpen(true);
       event.target.value = "";
       return;
     }
@@ -396,6 +398,14 @@ export function InventoryWorkspace({
     }
 
     event.target.value = "";
+  }
+
+  function handleDeleteSeed() {
+    const formData = new FormData();
+    formData.set("stockId", selectedStock?.id ?? "");
+    formData.set("personalSeedId", selectedSeed?.id ?? "");
+    setDeleteConfirmOpen(false);
+    void deleteInventorySeedAction(formData);
   }
 
   return (
@@ -441,6 +451,9 @@ export function InventoryWorkspace({
             </button>
             <button className="button-secondary" type="button" onClick={() => importInputRef.current?.click()}>
               Importera mina fröer
+            </button>
+            <button className="button-secondary" type="button" onClick={downloadImportTemplate}>
+              Ladda ner importmall
             </button>
             <button className="button-secondary" type="button" onClick={exportSeeds}>
               Exportera mina fröer
@@ -517,28 +530,11 @@ export function InventoryWorkspace({
           <input name="stockId" type="hidden" value={selectedStock?.id ?? ""} />
           <input name="personalSeedId" type="hidden" value={selectedSeed?.id ?? ""} />
           <input name="templateId" type="hidden" value={selectedSeed?.templateId ?? selectedTemplate?.id ?? ""} />
+          <input name="seedPerM2" type="hidden" value={formSeed?.seedPerM2 ?? ""} />
 
           <aside className="inventory-seed-visual">
             <div className="inventory-family-visual">
               {familyImage ? <span style={{ backgroundImage: `url(${familyImage})` }} /> : <strong>{formSeed?.family ? formSeed.family.slice(0, 1) : "?"}</strong>}
-            </div>
-            <div className="planning-summary">
-              <p className="section-kicker">Fröpost</p>
-              <h3>{[formSeed?.crop, formSeed?.variety].filter(Boolean).join(", ") || "Ny sort"}</h3>
-              <div className="planning-facts">
-                <div className="planning-fact">
-                  <span>Familj</span>
-                  <strong>{formSeed?.family || "-"}</strong>
-                </div>
-                <div className="planning-fact">
-                  <span>Metod</span>
-                  <strong>{formSeed?.method || "-"}</strong>
-                </div>
-                <div className="planning-fact">
-                  <span>Försådd</span>
-                  <strong>{formatRange(schedule.forsaddStart, schedule.forsaddEnd)}</strong>
-                </div>
-              </div>
             </div>
           </aside>
 
@@ -609,12 +605,12 @@ export function InventoryWorkspace({
                 </select>
               </label>
               <label className="form-field">
-                Plantavstånd
-                <input name="spacing" defaultValue={formSeed?.spacing ?? ""} />
-              </label>
-              <label className="form-field">
                 Radavstånd
                 <input name="rowSpacing" defaultValue={formSeed?.rowSpacing ?? ""} />
+              </label>
+              <label className="form-field">
+                Plantavstånd
+                <input name="spacing" defaultValue={formSeed?.spacing ?? ""} />
               </label>
               <label className="form-field">
                 Första försådd
@@ -653,10 +649,6 @@ export function InventoryWorkspace({
                 <input name="harvestEnd" type="number" min="1" max="52" defaultValue={schedule.harvestEnd ?? ""} />
               </label>
               <label className="form-field">
-                Frö/m²
-                <input name="seedPerM2" defaultValue={formSeed?.seedPerM2 ?? ""} />
-              </label>
-              <label className="form-field">
                 Antal
                 <input name="quantity" type="number" min="0" step="1" defaultValue={selectedRow?.quantity ?? 0} />
               </label>
@@ -682,14 +674,8 @@ export function InventoryWorkspace({
               {selectedSeed || selectedStock ? (
                 <button
                   className="button-secondary button-secondary--danger"
-                  formAction={deleteInventorySeedAction}
-                  formNoValidate
-                  type="submit"
-                  onClick={(event) => {
-                    if (!confirm(`Ta bort ${selectedRow?.crop || "valt frö"} från Mina fröer?`)) {
-                      event.preventDefault();
-                    }
-                  }}
+                  type="button"
+                  onClick={() => setDeleteConfirmOpen(true)}
                 >
                   Ta bort
                 </button>
@@ -704,6 +690,37 @@ export function InventoryWorkspace({
           </section>
         </form>
       </dialog>
+
+      <AppModal
+        actions={(
+          <button className="button-primary" type="button" onClick={() => setImportNoticeOpen(false)}>
+            Okej
+          </button>
+        )}
+        onClose={() => setImportNoticeOpen(false)}
+        open={importNoticeOpen}
+        title="Importen kunde inte läsas"
+      >
+        <p>Importfilen innehöll inga frörader.</p>
+      </AppModal>
+
+      <AppModal
+        actions={(
+          <>
+            <button className="button-secondary" type="button" onClick={() => setDeleteConfirmOpen(false)}>
+              Avbryt
+            </button>
+            <button className="button-secondary button-secondary--danger" type="button" onClick={handleDeleteSeed}>
+              Ta bort
+            </button>
+          </>
+        )}
+        onClose={() => setDeleteConfirmOpen(false)}
+        open={deleteConfirmOpen}
+        title="Ta bort fröpost"
+      >
+        <p>{`Ta bort ${selectedRow?.crop || "valt frö"} från Mina fröer?`}</p>
+      </AppModal>
 
     </section>
   );

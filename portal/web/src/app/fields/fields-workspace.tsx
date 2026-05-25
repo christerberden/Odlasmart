@@ -1,24 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import type { CSSProperties, FormEvent, PointerEvent } from "react";
+import type { CSSProperties, PointerEvent } from "react";
+import { AppModal } from "@/app/components/app-modal";
 import { InlineHelpPopover } from "@/app/components/inline-help-popover";
 import type { FieldRow, SectionRow } from "@/lib/data/fields";
 
 const fieldTypes = [
   ["bed", "Bädd"],
   ["greenhouse", "Växthus"],
-  ["path", "Gång"],
-  ["tree", "Träd"],
   ["house", "Hus"],
-  ["fence", "Staket"],
-  ["wall", "Mur"],
-  ["hedge", "Häck"],
-  ["other", "Annat"],
 ] as const;
 
 const fieldTypeLabels = new Map(fieldTypes);
 const sectionPalette = ["#6eb45d", "#dfb14f", "#d77264", "#67aec1", "#9a7ac7", "#d48756"] as const;
+const FIELD_PIXELS_PER_METER = 96;
 
 type CropSummary = {
   id: string;
@@ -50,6 +46,7 @@ type FieldsWorkspaceProps = {
   initialFieldId?: string;
   initialSectionId?: string;
   openNewFieldOnLoad?: boolean;
+  selectedYear: number;
   createFieldAction: (formData: FormData) => void | Promise<void>;
   createSectionAction: (formData: FormData) => void | Promise<void>;
   updateFieldAction: (formData: FormData) => void | Promise<void>;
@@ -59,6 +56,11 @@ type FieldsWorkspaceProps = {
   updateFieldPlacementAction: (formData: FormData) => Promise<{ ok: boolean; message?: string }>;
 };
 
+type DeleteTarget =
+  | { id: string; kind: "field"; label: string }
+  | { id: string; kind: "section"; label: string }
+  | null;
+
 function getFieldTypeLabel(type: string) {
   return fieldTypeLabels.get(type as (typeof fieldTypes)[number][0]) ?? type;
 }
@@ -67,18 +69,36 @@ function getPlotClasses(type: string) {
   if (type === "bed") return "portal-field-plot portal-field-plot--bed";
   if (type === "greenhouse") return "portal-field-plot portal-field-plot--greenhouse";
   if (type === "path") return "portal-field-plot portal-field-plot--path";
-  if (type === "tree" || type === "hedge") return "portal-field-plot portal-field-plot--round";
+  if (type === "tree") return "portal-field-plot portal-field-plot--tree";
+  if (type === "hedge") return "portal-field-plot portal-field-plot--round";
   return "portal-field-plot portal-field-plot--other";
 }
 
 function getFieldSize(field: FieldRow) {
   const widthM = Math.max(field.widthM ?? 1, 0.2);
   const lengthM = Math.max(field.lengthM ?? 1, 0.2);
+  const width = Math.min(Math.max(widthM * FIELD_PIXELS_PER_METER, 54), 720);
+  const height = Math.min(Math.max(lengthM * FIELD_PIXELS_PER_METER, 54), 960);
+
+  if (field.type === "tree") {
+    const diameter = Math.max(width, height);
+    return {
+      width: diameter,
+      height: diameter,
+    };
+  }
 
   return {
-    width: Math.min(Math.max(widthM * 96, 54), 720),
-    height: Math.min(Math.max(lengthM * 62, 54), 760),
+    width,
+    height,
   };
+}
+
+function getLayerIndex(type: string, isSelected: boolean) {
+  if (isSelected) return 40;
+  if (type === "tree") return 30;
+  if (type === "greenhouse") return 0;
+  return 10;
 }
 
 function getFieldStyle(field: FieldRow, placement: Placement, zoom: number, offset = { x: 0, y: 0 }): CSSProperties {
@@ -117,6 +137,10 @@ function formatArea(areaM2: number | null) {
     : "Ingen yta";
 }
 
+function formatDecimalInput(value: number | null | undefined) {
+  return value == null ? "" : value.toLocaleString("sv-SE", { maximumFractionDigits: 2 });
+}
+
 function formatDimensions(field: FieldRow) {
   if (field.widthM == null || field.lengthM == null) return "Mått saknas";
   return `${field.widthM.toLocaleString("sv-SE", { maximumFractionDigits: 2 })} x ${field.lengthM.toLocaleString("sv-SE", { maximumFractionDigits: 2 })} m`;
@@ -132,6 +156,26 @@ function getSectionColor(sectionId: string | null, sections: SectionRow[]) {
   if (!sectionId) return "#dfb14f";
   const sectionIndex = sections.findIndex((section) => section.id === sectionId);
   return sectionPalette[((sectionIndex >= 0 ? sectionIndex : 0) % sectionPalette.length)];
+}
+
+function getRotatedSectionFamily(section: SectionRow, sections: SectionRow[], selectedYear: number) {
+  if (!section.rotationEnabled || section.rotationOrder == null) {
+    return section.family;
+  }
+
+  const rotationSections = sections
+    .filter((item) => item.rotationEnabled && item.rotationOrder != null)
+    .sort((left, right) => (left.rotationOrder ?? 0) - (right.rotationOrder ?? 0));
+  const targetIndex = rotationSections.findIndex((item) => item.id === section.id);
+
+  if (targetIndex < 0 || rotationSections.length === 0) {
+    return section.family;
+  }
+
+  const currentYear = new Date().getFullYear();
+  const yearOffset = selectedYear - currentYear;
+  const sourceIndex = ((targetIndex - yearOffset) % rotationSections.length + rotationSections.length) % rotationSections.length;
+  return rotationSections[sourceIndex]?.family ?? section.family;
 }
 
 function shouldRotateFieldLabel(field: FieldRow, placement: Placement, zoom: number) {
@@ -224,11 +268,11 @@ function FieldFormFields({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-sm font-semibold">
           Bredd (m) X
-          <input className="rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-base outline-none focus:border-[var(--primary)]" defaultValue={field?.widthM ?? ""} inputMode="decimal" name="widthM" placeholder="0,75" />
+          <input className="rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-base outline-none focus:border-[var(--primary)]" defaultValue={formatDecimalInput(field?.widthM)} inputMode="decimal" name="widthM" placeholder="0,75" />
         </label>
         <label className="grid gap-1 text-sm font-semibold">
           Längd (m) Y
-          <input className="rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-base outline-none focus:border-[var(--primary)]" defaultValue={field?.lengthM ?? ""} inputMode="decimal" name="lengthM" placeholder="12" />
+          <input className="rounded-xl border border-[var(--border)] bg-white px-3 py-2 text-base outline-none focus:border-[var(--primary)]" defaultValue={formatDecimalInput(field?.lengthM)} inputMode="decimal" name="lengthM" placeholder="12" />
         </label>
       </div>
       <div className="grid gap-2">
@@ -294,6 +338,7 @@ export function FieldsWorkspace({
   initialFieldId,
   initialSectionId,
   openNewFieldOnLoad = false,
+  selectedYear,
   createFieldAction,
   createSectionAction,
   updateFieldAction,
@@ -307,10 +352,10 @@ export function FieldsWorkspace({
   const [zoom, setZoom] = useState(1);
   const [occupancyWeek, setOccupancyWeek] = useState(1);
   const [mapViewport, setMapViewport] = useState({ height: 0, width: 0 });
-  const [placements, setPlacements] = useState<Record<string, Placement>>(() =>
-    Object.fromEntries(fields.map((field, index) => [field.id, getInitialPlacement(field, index)])),
-  );
+  const [placementOverrides, setPlacementOverrides] = useState<Record<string, Placement>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
+  const [placementError, setPlacementError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const mapWorkspaceRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -338,6 +383,14 @@ export function FieldsWorkspace({
 
   const selectedField = fields.find((field) => field.id === selectedFieldId) ?? fields[0] ?? null;
   const selectedSection = sections.find((section) => section.id === selectedSectionId) ?? sections[0] ?? null;
+  const basePlacements = useMemo(
+    () => Object.fromEntries(fields.map((field, index) => [field.id, getInitialPlacement(field, index)])),
+    [fields],
+  );
+  const placements = useMemo(
+    () => ({ ...basePlacements, ...placementOverrides }),
+    [basePlacements, placementOverrides],
+  );
   const cropTitlesByFieldId = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const crop of crops) {
@@ -349,9 +402,13 @@ export function FieldsWorkspace({
     }
     return map;
   }, [crops]);
-  const totalAreaM2 = useMemo(
-    () => fields.reduce((sum, field) => sum + (field.areaM2 ?? 0), 0),
+  const bedFields = useMemo(
+    () => fields.filter((field) => field.type === "bed"),
     [fields],
+  );
+  const totalBedAreaM2 = useMemo(
+    () => bedFields.reduce((sum, field) => sum + (field.areaM2 ?? 0), 0),
+    [bedFields],
   );
   const fieldsWithoutSection = useMemo(
     () => fields.filter((field) => !field.sectionId),
@@ -462,8 +519,12 @@ export function FieldsWorkspace({
     formData.set("positionY", String(Math.round(placement.y)));
     formData.set("rotationDeg", String(placement.rotationDeg));
 
+    setPlacementError(null);
     startTransition(async () => {
-      await updateFieldPlacementAction(formData);
+      const result = await updateFieldPlacementAction(formData);
+      if (!result.ok) {
+        setPlacementError(result.message ?? "Placeringen kunde inte sparas.");
+      }
     });
   }
 
@@ -474,7 +535,7 @@ export function FieldsWorkspace({
       ...currentPlacement,
       rotationDeg: (((currentPlacement.rotationDeg + delta) % 360) + 360) % 360,
     };
-    setPlacements((current) => ({ ...current, [selectedField.id]: nextPlacement }));
+    setPlacementOverrides((current) => ({ ...current, [selectedField.id]: nextPlacement }));
     persistPlacement(selectedField.id, nextPlacement);
   }
 
@@ -579,7 +640,7 @@ export function FieldsWorkspace({
 
     const nextX = drag.startX + (event.clientX - drag.startClientX) / zoom;
     const nextY = drag.startY + (event.clientY - drag.startClientY) / zoom;
-    setPlacements((current) => ({
+    setPlacementOverrides((current) => ({
       ...current,
       [drag.fieldId]: {
         ...(current[drag.fieldId] ?? { rotationDeg: 0, x: 0, y: 0 }),
@@ -601,7 +662,7 @@ export function FieldsWorkspace({
       y: drag.startY + (event.clientY - drag.startClientY) / zoom,
     };
     dragRef.current = null;
-    setPlacements((current) => ({ ...current, [drag.fieldId]: placement }));
+    setPlacementOverrides((current) => ({ ...current, [drag.fieldId]: placement }));
     if (moved) {
       persistPlacement(drag.fieldId, placement);
     } else {
@@ -641,10 +702,22 @@ export function FieldsWorkspace({
     event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
-  function confirmDelete(event: FormEvent<HTMLFormElement>, label: string) {
-    if (!window.confirm(`Ta bort ${label}?`)) {
-      event.preventDefault();
+  function handleDeleteConfirm() {
+    if (!deleteTarget) {
+      return;
     }
+
+    const formData = new FormData();
+    if (deleteTarget.kind === "section") {
+      formData.set("sectionId", deleteTarget.id);
+      setDeleteTarget(null);
+      void deleteSectionAction(formData);
+      return;
+    }
+
+    formData.set("fieldId", deleteTarget.id);
+    setDeleteTarget(null);
+    void deleteFieldAction(formData);
   }
 
   function openFieldEditor(field: FieldRow) {
@@ -678,12 +751,13 @@ export function FieldsWorkspace({
           </div>
           <div className="portal-fields-head__stats" aria-label="Sammanfattning av odlingsytor">
             <span>{sections.length} skiften</span>
-            <span>{fields.length} ytor</span>
-            <span>{formatArea(totalAreaM2)}</span>
+            <span>{bedFields.length} bäddar</span>
+            <span>{formatArea(totalBedAreaM2)}</span>
           </div>
         </div>
 
         {error ? <p className="mt-4 rounded-xl border border-[var(--harvest)] bg-[#fff0ef] px-4 py-3 text-sm">{error}</p> : null}
+        {placementError ? <p className="mt-4 rounded-xl border border-[var(--harvest)] bg-[#fff0ef] px-4 py-3 text-sm">{placementError}</p> : null}
 
         <div className="portal-field-actions-row">
           <button className="portal-button-secondary" id="open-section-dialog" onClick={() => sectionDialogRef.current?.showModal()} type="button">Lägg till skifte</button>
@@ -732,6 +806,7 @@ export function FieldsWorkspace({
                   const fieldStyle = {
                     ...getFieldStyle(field, placement, zoom, { x: mapCanvasMetrics.offsetX, y: mapCanvasMetrics.offsetY }),
                     ["--section-color" as string]: sectionColor,
+                    zIndex: getLayerIndex(field.type, isSelected),
                   } as CSSProperties;
                   return (
                     <button
@@ -786,13 +861,14 @@ export function FieldsWorkspace({
           <div className="portal-bed-list mt-4">
             {sections.map((section) => {
               const sectionFields = fields.filter((field) => field.sectionId === section.id);
+              const sectionFamily = getRotatedSectionFamily(section, sections, selectedYear);
               return (
                 <details className="portal-bed-section" key={section.id} open style={{ ["--section-color" as string]: getSectionColor(section.id, sections) } as CSSProperties}>
                   <summary onClick={() => setSelectedSectionId(section.id)}>
                     <span className="portal-bed-section__summary">
                       <span className="portal-bed-section__title">
                         <span className="portal-bed-dot" />
-                        <strong>{section.name}{section.family ? ` · ${section.family}` : ""}</strong>
+                        <strong>{section.name}{sectionFamily ? ` · ${sectionFamily}` : ""}</strong>
                         <span className="portal-bed-toggle">▸</span>
                       </span>
                       <span className="portal-bed-section__meta">
@@ -800,10 +876,17 @@ export function FieldsWorkspace({
                       </span>
                       <span className="portal-bed-section__buttons">
                         <button className="portal-bed-button" onClick={(event) => { event.preventDefault(); openSectionEditor(section); }} type="button">Redigera</button>
-                        <form action={deleteSectionAction} onSubmit={(event) => confirmDelete(event, section.name)}>
-                          <input name="sectionId" type="hidden" value={section.id} />
-                          <button className="portal-bed-button portal-bed-button--danger" onClick={(event) => event.stopPropagation()} type="submit">Ta bort</button>
-                        </form>
+                        <button
+                          className="portal-bed-button portal-bed-button--danger"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setDeleteTarget({ id: section.id, kind: "section", label: section.name });
+                          }}
+                          type="button"
+                        >
+                          Ta bort
+                        </button>
                       </span>
                     </span>
                   </summary>
@@ -882,7 +965,7 @@ export function FieldsWorkspace({
 
       <dialog className="portal-dialog" ref={editSectionDialogRef}>
         {selectedSection ? (
-          <form action={updateSectionAction} className="portal-dialog__card">
+          <form action={updateSectionAction} className="portal-dialog__card" key={selectedSection.id}>
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-muted)]">Skiften</p>
               <h3 className="mt-1 text-2xl font-light tracking-[-0.04em]">{selectedSection.name}</h3>
@@ -923,17 +1006,37 @@ export function FieldsWorkspace({
               </div>
             </label>
             <div className="flex justify-end gap-2">
-              <button className="portal-button-secondary portal-button-danger" formAction={deleteFieldAction} formNoValidate onClick={(event) => {
-                if (!window.confirm(`Ta bort ${selectedField.name}?`)) {
-                  event.preventDefault();
-                }
-              }} type="submit">Ta bort</button>
+              <button
+                className="portal-button-secondary portal-button-danger"
+                type="button"
+                onClick={() => setDeleteTarget({ id: selectedField.id, kind: "field", label: selectedField.name })}
+              >
+                Ta bort
+              </button>
               <button className="portal-button-secondary" onClick={() => editFieldDialogRef.current?.close()} type="button">Avbryt</button>
               <button className="portal-button-primary" type="submit">Spara yta</button>
             </div>
           </form>
         ) : null}
       </dialog>
+
+      <AppModal
+        actions={(
+          <>
+            <button className="portal-button-secondary" type="button" onClick={() => setDeleteTarget(null)}>
+              Avbryt
+            </button>
+            <button className="portal-button-secondary portal-button-danger" type="button" onClick={handleDeleteConfirm}>
+              Ta bort
+            </button>
+          </>
+        )}
+        onClose={() => setDeleteTarget(null)}
+        open={deleteTarget !== null}
+        title="Bekräfta borttagning"
+      >
+        <p>{deleteTarget ? `Ta bort ${deleteTarget.label}?` : ""}</p>
+      </AppModal>
 
     </section>
   );

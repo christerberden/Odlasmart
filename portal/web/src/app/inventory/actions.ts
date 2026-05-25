@@ -114,13 +114,15 @@ type PersonalSeedLookupClient = {
 
 type PersonalSeedListClient = {
   from(table: "personal_seeds"): {
-    select(columns: "id, crop, variety, schedule"): {
+    select(columns: "id, crop, variety, schedule, seed_per_75, seed_per_m2"): {
       eq(column: "workspace_id", value: string): Promise<{
         data: {
           id: string;
           crop: string;
           variety: string;
           schedule: Json | null;
+          seed_per_75: number | null;
+          seed_per_m2: number | null;
         }[] | null;
         error: { message: string } | null;
       }>;
@@ -306,8 +308,6 @@ type ImportedInventoryRow = {
   cultureTime: string;
   spacing: string;
   rowSpacing: string;
-  seedPer75: number | null;
-  seedPerM2: number | null;
   quantity: number;
   purchaseYear: number | null;
   expirationYear: number | null;
@@ -364,8 +364,6 @@ function parseImportedRows(formData: FormData): ImportedInventoryRow[] {
       cultureTime: String(row.cultureTime ?? "").trim(),
       spacing: String(row.spacing ?? "").trim(),
       rowSpacing: String(row.rowSpacing ?? "").trim(),
-      seedPer75: parseImportedNumber(row.seedPer75),
-      seedPerM2: parseImportedNumber(row.seedPerM2),
       quantity: Math.max(0, Math.floor(parseImportedNumber(row.quantity) ?? 0)),
       purchaseYear: parseImportedInteger(row.purchaseYear),
       expirationYear: parseImportedInteger(row.expirationYear),
@@ -539,7 +537,7 @@ export async function importInventorySeeds(formData: FormData) {
   const stockWriteClient = supabase as unknown as SeedStockSaveClient;
 
   const [{ data: existingSeeds, error: seedsError }, { data: existingStock, error: stockError }] = await Promise.all([
-    seedListClient.from("personal_seeds").select("id, crop, variety, schedule").eq("workspace_id", workspace.id),
+    seedListClient.from("personal_seeds").select("id, crop, variety, schedule, seed_per_75, seed_per_m2").eq("workspace_id", workspace.id),
     stockListClient.from("seed_stock_batches").select("id, personal_seed_id").eq("workspace_id", workspace.id),
   ]);
 
@@ -586,8 +584,8 @@ export async function importInventorySeeds(formData: FormData) {
       culture_time: row.cultureTime,
       spacing: row.spacing,
       row_spacing: row.rowSpacing,
-      seed_per_75: row.seedPer75,
-      seed_per_m2: row.seedPerM2,
+      seed_per_75: existingSeed?.seed_per_75 ?? null,
+      seed_per_m2: existingSeed?.seed_per_m2 ?? null,
       expiration_year: row.expirationYear,
       notes: row.notes,
     };

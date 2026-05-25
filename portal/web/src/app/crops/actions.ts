@@ -91,6 +91,23 @@ type SeedStockUpsertValues = {
 
 type SeedStockPurchaseClient = {
   from(table: "seed_stock_batches"): {
+    select(columns: "id, quantity, purchase_year, expiration_year, supplier, notes"): {
+      eq(column: "workspace_id", value: string): {
+        eq(column: "id", value: string): {
+          maybeSingle(): Promise<{
+            data: {
+              id: string;
+              quantity: number;
+              purchase_year: number | null;
+              expiration_year: number | null;
+              supplier: string;
+              notes: string;
+            } | null;
+            error: { message: string } | null;
+          }>;
+        };
+      };
+    };
     insert(values: SeedStockUpsertValues & { workspace_id: string }): Promise<{ error: { message: string } | null }>;
     update(values: SeedStockUpsertValues): {
       eq(column: "workspace_id", value: string): {
@@ -1046,15 +1063,28 @@ export async function purchaseShoppingSeedsAction(formData: FormData) {
   const stockId = getFormString(formData, "stockId");
   const crop = getFormString(formData, "crop");
   const variety = getFormString(formData, "variety");
-  const quantity = Math.max(0, Math.floor(getOptionalNumber(formData, "quantity") ?? 0));
+  const purchasedQuantity = Math.max(0, Math.floor(getOptionalNumber(formData, "quantity") ?? 0));
   const purchaseYear = new Date().getFullYear();
 
   if (!personalSeedId) {
     redirect("/crops?error=Köpet kan bara registreras för grödor som är kopplade till Mina fröer");
   }
 
-  if (!crop || quantity <= 0) {
+  if (!crop || purchasedQuantity <= 0) {
     redirect("/crops?error=Ogiltigt köp");
+  }
+
+  const { data: existingStock, error: existingStockError } = stockId
+    ? await stockClient
+        .from("seed_stock_batches")
+        .select("id, quantity, purchase_year, expiration_year, supplier, notes")
+        .eq("workspace_id", workspace.id)
+        .eq("id", stockId)
+        .maybeSingle()
+    : { data: null, error: null };
+
+  if (existingStockError) {
+    redirect(`/crops?error=${encodeURIComponent(existingStockError.message)}`);
   }
 
   const values: SeedStockUpsertValues = {
@@ -1062,11 +1092,11 @@ export async function purchaseShoppingSeedsAction(formData: FormData) {
     name: [crop, variety].filter(Boolean).join(" - "),
     crop,
     variety,
-    quantity,
+    quantity: (existingStock?.quantity ?? 0) + purchasedQuantity,
     purchase_year: purchaseYear,
-    expiration_year: null,
-    supplier: "",
-    notes: "",
+    expiration_year: existingStock?.expiration_year ?? null,
+    supplier: existingStock?.supplier ?? "",
+    notes: existingStock?.notes ?? "",
   };
 
   const result = stockId

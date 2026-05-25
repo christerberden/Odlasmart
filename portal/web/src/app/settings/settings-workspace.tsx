@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { openAppGuide } from "@/app/components/app-guide";
+import { AppModal } from "@/app/components/app-modal";
 import type { CropRow } from "@/lib/data/crops";
 import type { WeatherLocation } from "@/lib/data/preferences";
 import type { FieldRow, SectionRow } from "@/lib/data/fields";
@@ -99,27 +100,18 @@ export function SettingsWorkspace({
   resetWorkspaceDataAction,
   sections,
 }: SettingsWorkspaceProps) {
-  const [theme, setTheme] = useState("light");
-  const [weatherLocation, setWeatherLocation] = useState<WeatherLocation | null>(initialWeatherLocation);
-  const [weatherDraft, setWeatherDraft] = useState(initialWeatherLocation?.name ?? "");
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [theme, setTheme] = useState(() => (getStoredTheme() === "dark" ? "dark" : "light"));
+  const [weatherLocation, setWeatherLocation] = useState<WeatherLocation | null>(() => readStoredWeatherLocation() ?? initialWeatherLocation);
+  const [weatherDraft, setWeatherDraft] = useState(() => (readStoredWeatherLocation() ?? initialWeatherLocation)?.name ?? "");
   const [weatherStatus, setWeatherStatus] = useState("");
   const [weatherSuggestions, setWeatherSuggestions] = useState<WeatherSuggestion[]>([]);
   const [weatherSaving, setWeatherSaving] = useState(false);
 
-  useEffect(() => {
-    const storedTheme = getStoredTheme();
-    const nextTheme = storedTheme === "dark" ? "dark" : "light";
-    setTheme(nextTheme);
-    document.body.dataset.theme = nextTheme;
-    document.documentElement.dataset.theme = nextTheme;
-    document.documentElement.style.colorScheme = nextTheme;
-  }, []);
-
-  useEffect(() => {
-    const storedLocation = readStoredWeatherLocation() ?? initialWeatherLocation;
-    setWeatherLocation(storedLocation);
-    setWeatherDraft(storedLocation?.name ?? "");
-  }, [initialWeatherLocation]);
+  function handleResetWorkspaceData() {
+    setResetConfirmOpen(false);
+    void resetWorkspaceDataAction(new FormData());
+  }
 
   useEffect(() => {
     document.body.dataset.theme = theme;
@@ -325,13 +317,7 @@ export function SettingsWorkspace({
             <article className="settings-export-card settings-reset-card">
               <h3>Nollställ workspace-data</h3>
               <p>Tar bort odlingsytor, skiften, egna fröer, lagerposter, grödor, uppgifter, planteringar och skörd. Konto, workspace och den globala frödatabasen lämnas kvar.</p>
-              <form action={resetWorkspaceDataAction} onSubmit={(event) => {
-                if (!window.confirm("Nollställa all workspace-data? Detta går inte att ångra.")) {
-                  event.preventDefault();
-                }
-              }}>
-                <button className="portal-button portal-button-danger" type="submit">Nollställ workspace-data</button>
-              </form>
+              <button className="portal-button portal-button-danger" type="button" onClick={() => setResetConfirmOpen(true)}>Nollställ workspace-data</button>
             </article>
           </section>
         </div>
@@ -390,6 +376,24 @@ export function SettingsWorkspace({
           </section>
         </aside>
       </section>
+
+      <AppModal
+        actions={(
+          <>
+            <button className="portal-button-secondary" type="button" onClick={() => setResetConfirmOpen(false)}>
+              Avbryt
+            </button>
+            <button className="portal-button portal-button-danger" type="button" onClick={handleResetWorkspaceData}>
+              Nollställ workspace-data
+            </button>
+          </>
+        )}
+        onClose={() => setResetConfirmOpen(false)}
+        open={resetConfirmOpen}
+        title="Nollställ workspace-data"
+      >
+        <p>Det här tar bort all workspace-data och går inte att ångra.</p>
+      </AppModal>
 
     </>
   );

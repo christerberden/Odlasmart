@@ -13,6 +13,7 @@ type CropCreateFormProps = {
   fields: FieldRow[];
   onCancel?: () => void;
   personalSeeds: PersonalSeedRow[];
+  selectedYear: number;
   sections: SectionRow[];
   seedTemplates: SeedTemplateOption[];
   stockBatches: SeedStockBatchRow[];
@@ -64,7 +65,13 @@ function normalizeFamily(family: string) {
 }
 
 function getFamilyImage(family: string) {
-  const key = normalizeFamily(family);
+  const key = family
+    .trim()
+    .toLocaleLowerCase("sv")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
   if (!key) {
     return "";
   }
@@ -80,7 +87,7 @@ function getFamilyImage(family: string) {
   if (key.includes("ort")) return "/familjer/ortvaxter.png";
   if (key.includes("grongod") || key.includes("gronsod")) return "/familjer/grongodsling.png";
 
-  return `/familjer/${key}.png`;
+  return "";
 }
 
 function calculateSowingLayout({
@@ -136,16 +143,35 @@ function getRecommendedWeek(start: number | null | undefined, end: number | null
   return String(Math.round((safeStart + safeEnd) / 2));
 }
 
-function formatRecommendedRange(start: number | null | undefined, end: number | null | undefined) {
+function getRecommendationBounds(start: number | null | undefined, end: number | null | undefined) {
   if (!start && !end) {
+    return null;
+  }
+
+  const safeStart = start ?? end ?? null;
+  const safeEnd = end ?? start ?? null;
+
+  if (!safeStart || !safeEnd) {
+    return null;
+  }
+
+  return {
+    end: Math.max(safeStart, safeEnd),
+    start: Math.min(safeStart, safeEnd),
+  };
+}
+
+function formatRecommendedRange(start: number | null | undefined, end: number | null | undefined) {
+  const bounds = getRecommendationBounds(start, end);
+  if (!bounds) {
     return "";
   }
 
-  if (!start || !end || start === end) {
-    return `rek. v.${start ?? end}`;
+  if (bounds.start === bounds.end) {
+    return `rek. v.${bounds.start}`;
   }
 
-  return `rek. v.${start}-${end}`;
+  return `rek. v.${bounds.start}-${bounds.end}`;
 }
 
 function scheduleToFormState(schedule: SeedSchedule | null | undefined): ScheduleFormState {
@@ -192,11 +218,12 @@ function getPlanningSowModes(schedule: SeedSchedule | null | undefined): Plannin
 
 function isWeekOutsideRecommendation(week: string, start: number | null | undefined, end: number | null | undefined) {
   const selectedWeek = getNumber(week);
-  if (!selectedWeek || (!start && !end)) {
+  const bounds = getRecommendationBounds(start, end);
+  if (!selectedWeek || !bounds) {
     return false;
   }
 
-  return selectedWeek < (start ?? end ?? selectedWeek) || selectedWeek > (end ?? start ?? selectedWeek);
+  return selectedWeek < bounds.start || selectedWeek > bounds.end;
 }
 
 function clampWeek(value: number) {
@@ -214,6 +241,61 @@ function getPlanningRange(schedule: SeedSchedule | null) {
   return {
     end: Math.max(start, end),
     start: Math.min(start, end),
+  };
+}
+
+function getSectionRotationRecommendation({
+  crops,
+  fields,
+  personalSeeds,
+  rotationSections,
+  seedTemplates,
+  selectedFamily,
+  selectedYear,
+}: {
+  crops: CropRow[];
+  fields: FieldRow[];
+  personalSeeds: PersonalSeedRow[];
+  rotationSections: SectionRow[];
+  seedTemplates: SeedTemplateOption[];
+  selectedFamily: string | null;
+  selectedYear: number;
+}) {
+  if (!selectedFamily || rotationSections.length === 0) {
+    return { previousSection: null, recommendedSection: null, referenceYear: null };
+  }
+
+  const previousPlacements = crops
+    .filter((crop) => crop.startYear < selectedYear)
+    .filter((crop) => getCropFamily(crop, personalSeeds, seedTemplates).toLocaleLowerCase("sv") === selectedFamily.toLocaleLowerCase("sv"))
+    .flatMap((crop) =>
+      crop.fields
+        .map((cropField) => {
+          const sectionId = fields.find((field) => field.id === cropField.fieldId)?.sectionId ?? null;
+          return sectionId ? { sectionId, year: crop.startYear } : null;
+        })
+        .filter((placement): placement is { sectionId: string; year: number } => placement !== null),
+    )
+    .sort((left, right) => right.year - left.year);
+
+  const latestPlacement = previousPlacements[0] ?? null;
+  if (!latestPlacement) {
+    return { previousSection: null, recommendedSection: null, referenceYear: null };
+  }
+
+  const previousSection = rotationSections.find((section) => section.id === latestPlacement.sectionId) ?? null;
+  if (!previousSection) {
+    return { previousSection: null, recommendedSection: null, referenceYear: latestPlacement.year };
+  }
+
+  const previousIndex = rotationSections.findIndex((section) => section.id === previousSection.id);
+  const yearStep = Math.max(selectedYear - latestPlacement.year, 1);
+  const recommendedSection = rotationSections[(previousIndex + yearStep) % rotationSections.length] ?? null;
+
+  return {
+    previousSection,
+    recommendedSection,
+    referenceYear: latestPlacement.year,
   };
 }
 
@@ -241,6 +323,7 @@ export function CropCreateForm({
   fields,
   onCancel,
   personalSeeds,
+  selectedYear,
   sections,
   seedTemplates,
   stockBatches,
@@ -336,7 +419,6 @@ export function CropCreateForm({
     },
   ].filter((group) => group.fields.length > 0);
 
-  const selectedYear = new Date().getFullYear();
   const selectedRange = getPlanningRange(selectedSchedule);
   const overlappingArea = selectedField
     ? crops
@@ -355,17 +437,19 @@ export function CropCreateForm({
   const rotationSections = sections
     .filter((section) => section.rotationEnabled)
     .sort((a, b) => (a.rotationOrder ?? Number.MAX_SAFE_INTEGER) - (b.rotationOrder ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name, "sv"));
-  const previousFamilySectionId = selectedSeed?.family
-    ? crops
-      .filter((crop) => crop.startYear <= selectedYear - 1 && crop.endYear >= selectedYear - 1)
-      .filter((crop) => getCropFamily(crop, personalSeeds, seedTemplates).toLocaleLowerCase("sv") === selectedSeed.family.toLocaleLowerCase("sv"))
-      .flatMap((crop) => crop.fields.map((cropField) => fields.find((field) => field.id === cropField.fieldId)?.sectionId))
-      .find(Boolean) ?? null
-    : null;
-  const previousSection = rotationSections.find((section) => section.id === previousFamilySectionId) ?? null;
-  const recommendedSection = previousSection
-    ? rotationSections[(rotationSections.findIndex((section) => section.id === previousSection.id) + 1) % rotationSections.length] ?? null
-    : null;
+  const {
+    previousSection,
+    recommendedSection,
+    referenceYear,
+  } = getSectionRotationRecommendation({
+    crops,
+    fields,
+    personalSeeds,
+    rotationSections,
+    seedTemplates,
+    selectedFamily: selectedSeed?.family ?? null,
+    selectedYear,
+  });
   const rotationNote = !selectedSeed?.family
     ? "Växtföljd: välj en gröda för att få förslag."
     : rotationSections.length === 0
@@ -375,11 +459,11 @@ export function CropCreateForm({
           ? `Växtföljd: ${selectedSection.name} ingår inte i växtföljden. Välj gärna ett roterande skifte för ${selectedSeed.family}.`
           : `Växtföljd: ingen tidigare placering hittades för ${selectedSeed.family}. Du kan starta i valfritt skifte som ingår.`
         : !selectedSection
-          ? `${selectedSeed.family} låg senast i ${previousSection?.name ?? "okänt skifte"} ${selectedYear - 1}. Välj ${recommendedSection.name} ${selectedYear}.`
+          ? `${selectedSeed.family} låg senast i ${previousSection?.name ?? "okänt skifte"} ${referenceYear ?? selectedYear - 1}. Välj ${recommendedSection.name} ${selectedYear}.`
           : !selectedSection.rotationEnabled
             ? `Vald bädd ligger i ${selectedSection.name}, som inte ingår i växtföljden. Välj ${recommendedSection.name}.`
             : selectedSection.id !== recommendedSection.id
-              ? `${selectedSeed.family} låg senast i ${previousSection?.name ?? "okänt skifte"} ${selectedYear - 1}. För växtföljd: välj ${recommendedSection.name}. Vald bädd ligger i ${selectedSection.name}.`
+              ? `${selectedSeed.family} låg senast i ${previousSection?.name ?? "okänt skifte"} ${referenceYear ?? selectedYear - 1}. För växtföljd: välj ${recommendedSection.name}. Vald bädd ligger i ${selectedSection.name}.`
               : `Bra val. ${selectedSeed.family} fortsätter i ${selectedSection.name} ${selectedYear}.`;
 
   const visibleStages = [

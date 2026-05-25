@@ -14,14 +14,22 @@ import { getTasks } from "@/lib/data/tasks";
 type CropsPageProps = {
   searchParams: Promise<{
     error?: string;
+    year?: string;
   }>;
 };
 
+function getSelectedYear(value: string | undefined) {
+  const currentYear = new Date().getFullYear();
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed) : currentYear;
+}
+
 export default async function CropsPage({ searchParams }: CropsPageProps) {
-  const [{ error }, authState] = await Promise.all([
+  const [{ error, year }, authState] = await Promise.all([
     searchParams,
     getCurrentAuthState(),
   ]);
+  const selectedYear = getSelectedYear(year);
   const activeWorkspace = authState.workspaces[0] ?? null;
   const [personalSeeds, seedTemplates, fields, sections, crops, stockBatches, tasks, preferences] = activeWorkspace
     ? await Promise.all([
@@ -74,6 +82,7 @@ export default async function CropsPage({ searchParams }: CropsPageProps) {
           importInventorySeedsAction={importInventorySeeds}
           frostWindow={preferences.frostWindow}
           purchaseShoppingSeedsAction={purchaseShoppingSeedsAction}
+          selectedYear={selectedYear}
           workspaceName={activeWorkspace.name}
         />
       ) : null}

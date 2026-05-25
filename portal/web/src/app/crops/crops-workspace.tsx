@@ -3,6 +3,7 @@
 import { startTransition, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, CSSProperties } from "react";
 import { useRouter } from "next/navigation";
+import { AppModal } from "@/app/components/app-modal";
 import { InlineHelpPopover } from "@/app/components/inline-help-popover";
 import { CropCreateForm } from "@/app/crops/crop-create-form";
 import type { CropRow } from "@/lib/data/crops";
@@ -27,6 +28,7 @@ type CropsWorkspaceProps = {
   frostWindow: FrostWindow | null;
   importInventorySeedsAction: (formData: FormData) => void | Promise<void>;
   purchaseShoppingSeedsAction: (formData: FormData) => void | Promise<void>;
+  selectedYear: number;
   updateCropAction: (formData: FormData) => void | Promise<void>;
   updateScheduleAction: (formData: FormData) => void | Promise<void>;
   workspaceName: string;
@@ -88,12 +90,21 @@ type ShoppingRow = {
   purchase: number;
 };
 
+type PurchaseDraft = {
+  quantity: string;
+  row: ShoppingRow;
+} | null;
+
 function formatArea(value: number | null | undefined) {
   if (value == null) {
     return "-";
   }
 
   return `${value.toLocaleString("sv-SE", { maximumFractionDigits: 1 })} m²`;
+}
+
+function formatDecimalInput(value: number | null | undefined) {
+  return value == null ? "" : value.toLocaleString("sv-SE", { maximumFractionDigits: 2 });
 }
 
 function csvEscape(value: string | number | null | undefined) {
@@ -185,13 +196,21 @@ function getActivityIconMarkup(icon: string) {
   return icons[icon] ?? icons.presow;
 }
 
-function getRange(start: number | null, end: number | null) {
-  if (!start && !end) {
+function toWeekValue(value: number | string | null | undefined) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getRange(start: number | string | null, end: number | string | null) {
+  const parsedStart = toWeekValue(start);
+  const parsedEnd = toWeekValue(end);
+
+  if (!parsedStart && !parsedEnd) {
     return null;
   }
 
-  const safeStart = Math.min(Math.max(start ?? end ?? 1, 1), 52);
-  const safeEnd = Math.min(Math.max(end ?? start ?? safeStart, safeStart), 52);
+  const safeStart = Math.min(Math.max(parsedStart ?? parsedEnd ?? 1, 1), 52);
+  const safeEnd = Math.min(Math.max(parsedEnd ?? parsedStart ?? safeStart, safeStart), 52);
   return { start: safeStart, end: safeEnd };
 }
 
@@ -211,10 +230,11 @@ function rangeStyle(range: { start: number; end: number }, color: string) {
   } as CSSProperties;
 }
 
-function markerStyle(range: { start: number; end: number }, color: string) {
+function markerStyle(range: { start: number; end: number }, color: string, offsetX = 0) {
   const week = Math.round((range.start + range.end) / 2);
+  const left = ((week - 0.5) / 52) * 100;
   return {
-    gridColumn: `${week} / ${week + 1}`,
+    left: `calc(${left}% + ${offsetX}px)`,
     "--timeline-color": color,
   } as CSSProperties;
 }
@@ -224,11 +244,70 @@ function markerRange(range: { start: number; end: number }) {
   return { start: week, end: week };
 }
 
-function getFieldAreaForCrops(crops: CropRow[], fields: FieldRow[]) {
-  const fieldIds = new Set(crops.flatMap((crop) => crop.fields.map((field) => field.fieldId)));
-  return fields
-    .filter((field) => fieldIds.has(field.id))
-    .reduce((sum, field) => sum + (field.areaM2 ?? 0), 0);
+function getScheduleAnchorWeek(schedule: SeedSchedule) {
+  return toWeekValue(schedule.forsaddStart)
+    ?? toWeekValue(schedule.directStart)
+    ?? toWeekValue(schedule.transplantStart)
+    ?? toWeekValue(schedule.harvestStart)
+    ?? toWeekValue(schedule.harvestEnd)
+    ?? toWeekValue(schedule.transplantEnd)
+    ?? toWeekValue(schedule.directEnd)
+    ?? toWeekValue(schedule.forsaddEnd);
+}
+
+function getActivityYear(crop: CropRow, range: { start: number; end: number }) {
+  const anchorWeek = getScheduleAnchorWeek(crop.schedule);
+  const activityWeek = markerRange(range).start;
+
+  if (anchorWeek && activityWeek < anchorWeek && crop.endYear > crop.startYear) {
+    return crop.endYear;
+  }
+
+  return crop.startYear;
+}
+
+function cropIsInSelectedYear(crop: CropRow, selectedYear: number) {
+  return crop.startYear <= selectedYear && crop.endYear >= selectedYear;
+}
+
+function getRangeMarkerWeek(start: number | string | null, end: number | string | null) {
+  const range = getRange(start, end);
+  return range ? markerRange(range).start : null;
+}
+
+function getBedOccupancyRange(crop: CropRow, selectedYear: number) {
+  const schedule = crop.schedule;
+  const startCandidates = [
+    getRangeMarkerWeek(schedule.directStart, schedule.directEnd),
+    getRangeMarkerWeek(schedule.transplantStart, schedule.transplantEnd),
+    getRangeMarkerWeek(schedule.forsaddStart, schedule.forsaddEnd),
+  ].filter((value): value is number => value !== null);
+  const endCandidates = [
+    getRangeMarkerWeek(schedule.harvestStart, schedule.harvestEnd),
+    getRangeMarkerWeek(schedule.transplantStart, schedule.transplantEnd),
+    getRangeMarkerWeek(schedule.directStart, schedule.directEnd),
+    getRangeMarkerWeek(schedule.forsaddStart, schedule.forsaddEnd),
+  ].filter((value): value is number => value !== null);
+  const start = startCandidates[0];
+  const end = endCandidates[0];
+
+  if (!start || !end) {
+    return null;
+  }
+
+  if (crop.endYear > crop.startYear) {
+    if (selectedYear === crop.startYear) {
+      return getRange(start, 52);
+    }
+
+    if (selectedYear === crop.endYear) {
+      return getRange(1, end);
+    }
+
+    return null;
+  }
+
+  return selectedYear === crop.startYear ? getRange(start, end) : null;
 }
 
 function getOccupancyLevel(ratio: number) {
@@ -244,21 +323,64 @@ function getOccupancyLevel(ratio: number) {
   if (ratio <= 0.75) {
     return "high";
   }
-  if (ratio < 1) {
+  if (ratio <= 1) {
     return "full";
   }
   return "over";
 }
 
-function getBedOccupancyRange(schedule: SeedSchedule) {
-  const start = schedule.directStart ?? schedule.transplantStart ?? schedule.directEnd ?? schedule.transplantEnd;
-  const end = schedule.harvestEnd ?? schedule.harvestStart;
+function getGroupCapacityArea(crops: CropRow[], fields: FieldRow[]) {
+  const fieldIds = new Set(crops.flatMap((crop) => crop.fields.map((field) => field.fieldId)));
+  const fieldArea = fields
+    .filter((field) => fieldIds.has(field.id))
+    .reduce((sum, field) => sum + (field.areaM2 ?? 0), 0);
 
-  if (!start || !end) {
-    return null;
+  if (fieldArea > 0) {
+    return fieldArea;
   }
 
-  return getRange(start, end);
+  return Math.max(...crops.map((crop) => crop.areaM2 ?? 0), 0);
+}
+
+function getMarkerOffsetPx(index: number, total: number) {
+  if (total <= 1) {
+    return 0;
+  }
+
+  return (index - (total - 1) / 2) * 12;
+}
+
+type TimelineMarkerItem = (ReturnType<typeof getScheduleRanges>[number] & {
+  key: ActivityKey;
+  range: { start: number; end: number };
+}) & {
+  markerOffsetPx: number;
+};
+
+function getTimelineMarkers(crop: CropRow, activeTypes: Set<ActivityKey>, selectedYear: number): TimelineMarkerItem[] {
+  const items = getScheduleRanges(crop.schedule).filter((item): item is TimelineMarkerItem => (
+    Boolean(item.range) && activeTypes.has(item.key as ActivityKey)
+    && getActivityYear(crop, item.range) === selectedYear
+  ));
+  const totalsByWeek = new Map<number, number>();
+  const seenByWeek = new Map<number, number>();
+
+  for (const item of items) {
+    const week = markerRange(item.range).start;
+    totalsByWeek.set(week, (totalsByWeek.get(week) ?? 0) + 1);
+  }
+
+  return items.map((item) => {
+    const week = markerRange(item.range).start;
+    const index = seenByWeek.get(week) ?? 0;
+    seenByWeek.set(week, index + 1);
+
+    return {
+      ...item,
+      key: item.key as ActivityKey,
+      markerOffsetPx: getMarkerOffsetPx(index, totalsByWeek.get(week) ?? 1),
+    };
+  });
 }
 
 function cropFieldName(crop: CropRow) {
@@ -322,13 +444,13 @@ function getActivityStatus(crop: CropRow, activity: ActivityKey, tasks: TaskRow[
   return activityTasks.every((task) => task.status === "done") ? "done" : "open";
 }
 
-function cropMatchesStatus(crop: CropRow, statusFilter: string, tasks: TaskRow[], activeTypes: Set<string>) {
+function cropMatchesStatus(crop: CropRow, statusFilter: string, tasks: TaskRow[], activeTypes: Set<ActivityKey>, selectedYear: number) {
   if (statusFilter === "alla") {
     return true;
   }
 
-  return getScheduleRanges(crop.schedule).some((item) => (
-    item.range && activeTypes.has(item.key) && getActivityStatus(crop, item.key as ActivityKey, tasks) === statusFilter
+  return getTimelineMarkers(crop, activeTypes, selectedYear).some((item) => (
+    getActivityStatus(crop, item.key, tasks) === statusFilter
   ));
 }
 
@@ -352,39 +474,13 @@ function weekToPercentWidth(startWeek: number, endWeek: number) {
   return `${((endWeek - startWeek + 1) / 52) * 100}%`;
 }
 
-function getOverallOccupancy(crops: CropRow[], fields: FieldRow[]) {
-  const totalArea = getFieldAreaForCrops(crops, fields);
-  const weeklyArea = new Map<number, number>();
-
-  for (const crop of crops) {
-    const occupancyRange = getBedOccupancyRange(crop.schedule);
-
-    if (!occupancyRange) {
-      continue;
-    }
-
-    for (let week = occupancyRange.start; week <= occupancyRange.end; week += 1) {
-      weeklyArea.set(week, (weeklyArea.get(week) ?? 0) + (crop.areaM2 ?? 0));
-    }
-  }
-
-  return WEEKS.map((week) => {
-    const ratio = totalArea > 0 ? (weeklyArea.get(week) ?? 0) / totalArea : 0;
-    return { level: getOccupancyLevel(ratio), ratio, week };
-  });
-}
-
-function hasVisibleRange(crop: CropRow, view: TimelineView, activeTypes: Set<string>) {
-  return getScheduleRanges(crop.schedule).some((item) => {
-    if (!item.range) {
-      return false;
-    }
-
+function hasVisibleRange(crop: CropRow, view: TimelineView, activeTypes: Set<ActivityKey>, selectedYear: number) {
+  return getTimelineMarkers(crop, activeTypes, selectedYear).some((item) => {
     if (view === "presow") {
       return item.key === "forsadd";
     }
 
-    return activeTypes.has(item.key);
+    return true;
   });
 }
 
@@ -413,6 +509,7 @@ export function CropsWorkspace({
   importInventorySeedsAction,
   personalSeeds,
   purchaseShoppingSeedsAction,
+  selectedYear,
   sections,
   seedTemplates,
   stockBatches,
@@ -424,6 +521,9 @@ export function CropsWorkspace({
 }: CropsWorkspaceProps) {
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [importNoticeOpen, setImportNoticeOpen] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [purchaseDraft, setPurchaseDraft] = useState<PurchaseDraft>(null);
   const shoppingDialogRef = useRef<HTMLDialogElement>(null);
   const importFormRef = useRef<HTMLFormElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -442,15 +542,16 @@ export function CropsWorkspace({
 
   const filteredCrops = useMemo(() => {
     return crops
+      .filter((crop) => cropIsInSelectedYear(crop, selectedYear))
       .filter((crop) => fieldFilter === "alla" || crop.fields.some((field) => field.fieldId === fieldFilter))
       .filter((crop) => sectionFilter === "alla" || crop.fields.some((cropField) => {
         const field = fields.find((item) => item.id === cropField.fieldId);
         return field?.sectionId === sectionFilter;
       }))
       .filter((crop) => familyFilter === "alla" || getCropFamily(crop, personalSeeds, seedTemplates) === familyFilter)
-      .filter((crop) => cropMatchesStatus(crop, statusFilter, tasks, activeTypes))
-      .filter((crop) => hasVisibleRange(crop, view, activeTypes));
-  }, [activeTypes, crops, familyFilter, fieldFilter, fields, personalSeeds, sectionFilter, seedTemplates, statusFilter, tasks, view]);
+      .filter((crop) => cropMatchesStatus(crop, statusFilter, tasks, activeTypes, selectedYear))
+      .filter((crop) => hasVisibleRange(crop, view, activeTypes, selectedYear));
+  }, [activeTypes, crops, familyFilter, fieldFilter, fields, personalSeeds, sectionFilter, seedTemplates, selectedYear, statusFilter, tasks, view]);
 
   const cropsByField = useMemo(() => {
     const map = new Map<string, CropRow[]>();
@@ -468,8 +569,6 @@ export function CropsWorkspace({
     [...new Set(crops.map((crop) => getCropFamily(crop, personalSeeds, seedTemplates)).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, "sv"))
   ), [crops, personalSeeds, seedTemplates]);
-  const totalArea = filteredCrops.reduce((sum, crop) => sum + (crop.areaM2 ?? 0), 0);
-  const occupancyWeeks = useMemo(() => getOverallOccupancy(filteredCrops, fields), [fields, filteredCrops]);
   const shoppingRows = useMemo(() => {
     const grouped = new Map<string, ShoppingRow>();
 
@@ -575,7 +674,7 @@ export function CropsWorkspace({
     const parsedRows = csvToImportRows(content);
 
     if (parsedRows.length === 0) {
-      alert("Importfilen innehöll inga frörader.");
+      setImportNoticeOpen(true);
       event.target.value = "";
       return;
     }
@@ -586,6 +685,38 @@ export function CropsWorkspace({
     }
 
     event.target.value = "";
+  }
+
+  function handleClearAllCrops() {
+    setClearConfirmOpen(false);
+    void clearAllCropsAction();
+  }
+
+  function openPurchaseDialog(row: ShoppingRow) {
+    setPurchaseDraft({
+      quantity: "",
+      row,
+    });
+  }
+
+  function confirmPurchase() {
+    if (!purchaseDraft) {
+      return;
+    }
+
+    const quantity = Math.floor(Number(purchaseDraft.quantity.replace(",", ".")));
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("personalSeedId", purchaseDraft.row.personalSeedId ?? "");
+    formData.set("stockId", purchaseDraft.row.stockId ?? "");
+    formData.set("crop", purchaseDraft.row.crop);
+    formData.set("variety", purchaseDraft.row.variety);
+    formData.set("quantity", String(quantity));
+    setPurchaseDraft(null);
+    void purchaseShoppingSeedsAction(formData);
   }
 
   function toggleType(type: string) {
@@ -662,18 +793,9 @@ export function CropsWorkspace({
             <button className="portal-button-secondary" type="button" onClick={() => shoppingDialogRef.current?.showModal()}>
               Inköpslista
             </button>
-            <form
-              action={clearAllCropsAction}
-              onSubmit={(event) => {
-                if (!window.confirm("Töm hela odlingen? Alla planerade grödor i odlingsplanen tas bort.")) {
-                  event.preventDefault();
-                }
-              }}
-            >
-              <button className="portal-button-secondary portal-button-danger" type="submit">
-                Töm odling
-              </button>
-            </form>
+            <button className="portal-button-secondary portal-button-danger" type="button" onClick={() => setClearConfirmOpen(true)}>
+              Töm odling
+            </button>
             <button className="portal-button-secondary" type="button" onClick={() => importInputRef.current?.click()}>
               Importera fröer
             </button>
@@ -765,32 +887,9 @@ export function CropsWorkspace({
             </div>
           </div>
 
-          <section className="timeline-occupancy-card" aria-label="Beläggningsdiagram">
-            <div className="timeline-occupancy-card__head">
-              <strong>Beläggningsdiagram</strong>
-              <span>{filteredCrops.length} grödor · {formatArea(totalArea)}</span>
-            </div>
-            <div className="timeline-occupancy-card__weeks" aria-hidden="true">
-              {WEEKS.map((week) => <span key={week}>{week}</span>)}
-            </div>
-            <div className="timeline-occupancy-card__bars" aria-hidden="true">
-              {occupancyWeeks.map((entry) => (
-                <i
-                  className={`is-${entry.level}`}
-                  key={entry.week}
-                  title={`Vecka ${entry.week}: ${Math.round(entry.ratio * 100)}% beläggning`}
-                />
-              ))}
-            </div>
-          </section>
         </div>
 
         <div className="timeline-frame">
-          <div className="timeline-weeks">
-            <span />
-            {WEEKS.map((week) => <span key={week}>{week}</span>)}
-          </div>
-
           {view === "utilization" ? (
             <UtilizationRows crops={filteredCrops} fields={fields} frostWindow={resolvedFrostWindow} week={currentWeek} />
           ) : (
@@ -801,9 +900,14 @@ export function CropsWorkspace({
                     <strong>{fieldName}</strong>
                     <span>{group.length} grödor planerade</span>
                   </div>
-                  <UtilizationOverview crops={group} fields={fields} />
+                  {sortBy === "field" ? <OccupancyBars crops={group} fields={fields} selectedYear={selectedYear} /> : null}
                   {group.map((crop) => (
-                    <div className="timeline-row" key={crop.id}>
+                    <div className="timeline-crop" key={crop.id}>
+                      <div className="timeline-weeks timeline-weeks--crop">
+                        <span />
+                        {WEEKS.map((week) => <span className={week === currentWeek ? "is-current" : ""} key={week}>{week}</span>)}
+                      </div>
+                      <div className="timeline-row">
                       <button className="timeline-meta timeline-meta--button" type="button" onClick={() => setEditingCrop(crop)}>
                         <strong>{crop.title}</strong>
                         <span>{[crop.batchName, formatArea(crop.areaM2)].filter(Boolean).join(" · ")}</span>
@@ -819,11 +923,11 @@ export function CropsWorkspace({
                           className="timeline-today-line"
                           style={{ left: `calc(${((currentWeek - 1) / 52) * 100}% + 1px)` }}
                         />
-                        {getScheduleRanges(crop.schedule).map((item) => {
+                          {getTimelineMarkers(crop, activeTypes, selectedYear).map((item) => {
                           const status = getActivityStatus(crop, item.key as ActivityKey, tasks);
-                          return item.range && activeTypes.has(item.key) ? (
+                          return (
                             <span
-                              className={`timeline-block timeline-block--${item.key} is-${status} is-draggable`}
+                              className={`timeline-block timeline-marker timeline-block--${item.key} is-${status} is-draggable`}
                               draggable
                               key={item.key}
                               onClick={(event) => event.stopPropagation()}
@@ -832,13 +936,14 @@ export function CropsWorkspace({
                                 cropId: crop.id,
                                 duration: 0,
                               })}
-                              style={markerStyle(item.range, item.color)}
+                              style={markerStyle(item.range, item.color, item.markerOffsetPx)}
                               title={`${item.label} vecka ${markerRange(item.range).start}. Dra för att flytta momentet.`}
                             >
                               <span className="timeline-block__status" aria-hidden="true">{status === "done" ? "✓" : ""}</span>
                             </span>
-                          ) : null;
+                          );
                         })}
+                      </div>
                       </div>
                     </div>
                   ))}
@@ -858,6 +963,7 @@ export function CropsWorkspace({
           fields={fields}
           onCancel={() => dialogRef.current?.close()}
           personalSeeds={personalSeeds}
+          selectedYear={selectedYear}
           sections={sections}
           seedTemplates={seedTemplates}
           stockBatches={stockBatches}
@@ -905,19 +1011,13 @@ export function CropsWorkspace({
                       <td><strong>{row.purchase}</strong></td>
                       <td>
                         {row.personalSeedId ? (
-                          <form action={purchaseShoppingSeedsAction}>
-                            <input name="personalSeedId" type="hidden" value={row.personalSeedId} />
-                            <input name="stockId" type="hidden" value={row.stockId ?? ""} />
-                            <input name="crop" type="hidden" value={row.crop} />
-                            <input name="variety" type="hidden" value={row.variety} />
-                            <input name="quantity" type="hidden" value={String(row.stock + row.purchase)} />
-                            <button
-                              className="icon-button seed-shopping-buy"
-                              type="submit"
-                              aria-label={`Registrera köp av ${row.title}`}
-                              dangerouslySetInnerHTML={{ __html: getActivityIconMarkup("shoppingCart") }}
-                            />
-                          </form>
+                          <button
+                            className="icon-button seed-shopping-buy"
+                            type="button"
+                            aria-label={`Registrera köp av ${row.title}`}
+                            onClick={() => openPurchaseDialog(row)}
+                            dangerouslySetInnerHTML={{ __html: getActivityIconMarkup("shoppingCart") }}
+                          />
                         ) : null}
                       </td>
                     </tr>
@@ -969,6 +1069,74 @@ export function CropsWorkspace({
           updateCropAction={updateCropAction}
         />
       ) : null}
+
+      <AppModal
+        actions={(
+          <button className="button-primary" type="button" onClick={() => setImportNoticeOpen(false)}>
+            Okej
+          </button>
+        )}
+        onClose={() => setImportNoticeOpen(false)}
+        open={importNoticeOpen}
+        title="Importen kunde inte läsas"
+      >
+        <p>Importfilen innehöll inga frörader.</p>
+      </AppModal>
+
+      <AppModal
+        actions={(
+          <>
+            <button className="button-secondary" type="button" onClick={() => setClearConfirmOpen(false)}>
+              Avbryt
+            </button>
+            <button className="button-secondary portal-button-danger" type="button" onClick={handleClearAllCrops}>
+              Töm odling
+            </button>
+          </>
+        )}
+        onClose={() => setClearConfirmOpen(false)}
+        open={clearConfirmOpen}
+        title="Töm odlingen"
+      >
+        <p>Alla planerade grödor i odlingsplanen tas bort. Det går inte att ångra.</p>
+      </AppModal>
+
+      <AppModal
+        actions={(
+          <>
+            <button className="button-secondary" type="button" onClick={() => setPurchaseDraft(null)}>
+              Avbryt
+            </button>
+            <button className="button-primary" type="button" onClick={confirmPurchase}>
+              Lägg till i lager
+            </button>
+          </>
+        )}
+        onClose={() => setPurchaseDraft(null)}
+        open={purchaseDraft !== null}
+        title="Registrera fröinköp"
+      >
+        {purchaseDraft ? (
+          <>
+            <p>{`Hur många frön har du köpt för ${purchaseDraft.row.title}${purchaseDraft.row.variety ? ` - ${purchaseDraft.row.variety}` : ""}?`}</p>
+            <label className="form-field">
+              Antal köpta frön
+              <input
+                autoFocus
+                inputMode="numeric"
+                min="1"
+                placeholder="Skriv antal"
+                required
+                step="1"
+                type="number"
+                value={purchaseDraft.quantity}
+                onChange={(event) => setPurchaseDraft((current) => (current ? { ...current, quantity: event.target.value } : current))}
+              />
+            </label>
+            <p>{`I lager nu: ${purchaseDraft.row.stock}. Beräknat behov kvar före köp: ${purchaseDraft.row.purchase}.`}</p>
+          </>
+        ) : null}
+      </AppModal>
     </>
   );
 }
@@ -1017,28 +1185,27 @@ function FrostOverlay({ frostWindow }: { frostWindow: FrostWindow }) {
   );
 }
 
-function UtilizationOverview({ crops, fields }: { crops: CropRow[]; fields: FieldRow[] }) {
-  const totalArea = getFieldAreaForCrops(crops, fields);
+function OccupancyBars({ crops, fields, selectedYear }: { crops: CropRow[]; fields: FieldRow[]; selectedYear: number }) {
+  const capacityArea = getGroupCapacityArea(crops, fields);
   const weeklyArea = new Map<number, number>();
 
   for (const crop of crops) {
-    const occupancyRange = getBedOccupancyRange(crop.schedule);
-
-    if (!occupancyRange) {
+    const range = getBedOccupancyRange(crop, selectedYear);
+    if (!range) {
       continue;
     }
 
-    for (let week = occupancyRange.start; week <= occupancyRange.end; week += 1) {
+    for (let week = range.start; week <= range.end; week += 1) {
       weeklyArea.set(week, (weeklyArea.get(week) ?? 0) + (crop.areaM2 ?? 0));
     }
   }
 
   return (
-    <div className="timeline-utilization-overview" aria-label="Fyllnadsgrad per vecka">
-      <span />
-      <div className="timeline-utilization-overview__track">
+    <div className="timeline-occupancy-bars" aria-label="Beläggningsgrad per vecka">
+      <span className="timeline-occupancy-bars__label">Beläggning</span>
+      <div className="timeline-occupancy-bars__grid">
         {WEEKS.map((week) => {
-          const ratio = totalArea > 0 ? (weeklyArea.get(week) ?? 0) / totalArea : 0;
+          const ratio = capacityArea > 0 ? (weeklyArea.get(week) ?? 0) / capacityArea : 0;
           return (
             <i
               className={`is-${getOccupancyLevel(ratio)}`}
@@ -1047,10 +1214,6 @@ function UtilizationOverview({ crops, fields }: { crops: CropRow[]; fields: Fiel
             />
           );
         })}
-      </div>
-      <span />
-      <div className="timeline-utilization-overview__weeks">
-        {WEEKS.map((week) => <span className={week === getIsoWeek() ? "is-current" : ""} key={week}>{week}</span>)}
       </div>
     </div>
   );
@@ -1143,8 +1306,17 @@ function CropEditDialog({
   const familyImage = getFamilyImage(family);
   const cropTasks = tasks.filter((task) => task.cropId === crop.id);
   const availableArea = selectedField?.areaM2 ?? null;
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  function handleDeleteCrop() {
+    const formData = new FormData();
+    formData.set("cropId", crop.id);
+    setDeleteConfirmOpen(false);
+    void deleteCropAction(formData);
+  }
 
   return (
+    <>
     <div className="crop-edit-overlay" role="dialog" aria-modal="true" aria-label="Redigera gröda">
       <form action={updateCropAction} className="crop-edit-card crop-edit-card--planner">
         <aside className="crop-edit-sidebar">
@@ -1179,7 +1351,7 @@ function CropEditDialog({
           </label>
           <label>
             Yta m²
-            <input name="areaM2" defaultValue={crop.areaM2 ?? ""} inputMode="decimal" />
+            <input name="areaM2" defaultValue={formatDecimalInput(crop.areaM2)} inputMode="decimal" />
           </label>
           <label className="crop-edit-grid__wide">
             Bädd
@@ -1243,7 +1415,7 @@ function CropEditDialog({
           <input name="seedStockBatchId" type="hidden" value={cropField?.seedStockBatchId ?? ""} />
         </div>
         <div className="crop-edit-card__actions">
-          <button className="portal-button portal-button-danger" form="delete-crop-form" type="submit">
+          <button className="portal-button portal-button-danger" type="button" onClick={() => setDeleteConfirmOpen(true)}>
             Ta bort gröda
           </button>
           <button className="portal-button" type="button" onClick={onClose}>Avbryt</button>
@@ -1251,10 +1423,25 @@ function CropEditDialog({
         </div>
         </section>
       </form>
-      <form action={deleteCropAction} id="delete-crop-form">
-        <input name="cropId" type="hidden" value={crop.id} />
-      </form>
     </div>
+    <AppModal
+      actions={(
+        <>
+          <button className="button-secondary" type="button" onClick={() => setDeleteConfirmOpen(false)}>
+            Avbryt
+          </button>
+          <button className="button-secondary portal-button-danger" type="button" onClick={handleDeleteCrop}>
+            Ta bort gröda
+          </button>
+        </>
+      )}
+      onClose={() => setDeleteConfirmOpen(false)}
+      open={deleteConfirmOpen}
+      title="Ta bort gröda"
+    >
+      <p>{`Ta bort ${crop.title} från odlingsplanen?`}</p>
+    </AppModal>
+    </>
   );
 }
 

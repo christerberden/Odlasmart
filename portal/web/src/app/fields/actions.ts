@@ -99,6 +99,29 @@ type FieldPlacementUpdateClient = {
   };
 };
 
+type FieldPositionUpdateClient = {
+  from(table: "fields"): {
+    update(values: {
+      position_x: number | null;
+      position_y: number | null;
+    }): {
+      eq(column: "id", value: string): {
+        eq(column: "workspace_id", value: string): Promise<{ error: { message: string } | null }>;
+      };
+    };
+  };
+};
+
+const FIELD_PIXELS_PER_METER = 96;
+
+type ExistingFieldPlacement = {
+  id: string;
+  length_m: number | null;
+  position_x: number | null;
+  position_y: number | null;
+  width_m: number | null;
+};
+
 function getFormString(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
 }
@@ -138,22 +161,23 @@ function getFieldType(formData: FormData) {
   return [
     "bed",
     "greenhouse",
-    "path",
-    "tree",
     "house",
-    "fence",
-    "wall",
-    "hedge",
-    "other",
   ].includes(rawType)
     ? (rawType as FieldType)
-    : "other";
+    : "bed";
 }
 
 function getFieldPreviewSize(widthM: number | null, lengthM: number | null) {
   return {
-    width: Math.min(Math.max((widthM ?? 1) * 96, 54), 720),
-    height: Math.min(Math.max((lengthM ?? 1) * 62, 54), 760),
+    width: Math.min(Math.max((widthM ?? 1) * FIELD_PIXELS_PER_METER, 54), 720),
+    height: Math.min(Math.max((lengthM ?? 1) * FIELD_PIXELS_PER_METER, 54), 960),
+  };
+}
+
+function getFallbackPlacement(index: number) {
+  return {
+    x: 24 + (index % 3) * 260,
+    y: 24 + Math.floor(index / 3) * 130,
   };
 }
 
@@ -240,20 +264,43 @@ export async function createField(formData: FormData) {
   const fieldClient = supabase as unknown as FieldInsertClient;
   const { data: existingFields, error: existingFieldsError } = await supabase
     .from("fields")
-    .select("position_x, position_y, width_m, length_m")
-    .eq("workspace_id", workspace.id);
+    .select("id, position_x, position_y, width_m, length_m")
+    .eq("workspace_id", workspace.id)
+    .order("name", { ascending: true });
 
   if (existingFieldsError) {
     redirect(`/fields?error=${encodeURIComponent(existingFieldsError.message)}`);
   }
 
+  const existingFieldPlacements = ((existingFields ?? []) as ExistingFieldPlacement[]).map((field, index) => {
+    const fallback = getFallbackPlacement(index);
+    return {
+      ...field,
+      position_x: field.position_x ?? fallback.x,
+      position_y: field.position_y ?? fallback.y,
+    };
+  });
+
+  const positionClient = supabase as unknown as FieldPositionUpdateClient;
+  const missingPlacementUpdates = existingFieldPlacements
+    .filter((field, index) => {
+      const original = (existingFields ?? [])[index] as ExistingFieldPlacement;
+      return original.position_x == null || original.position_y == null;
+    })
+    .map((field) => positionClient
+      .from("fields")
+      .update({ position_x: field.position_x, position_y: field.position_y })
+      .eq("id", field.id)
+      .eq("workspace_id", workspace.id));
+  const placementUpdateResults = await Promise.all(missingPlacementUpdates);
+  const placementUpdateError = placementUpdateResults.find((result) => result.error)?.error;
+
+  if (placementUpdateError) {
+    redirect(`/fields?error=${encodeURIComponent(placementUpdateError.message)}`);
+  }
+
   const size = getFieldPreviewSize(widthM, lengthM);
-  const occupied = (existingFields ?? []).map((field: {
-    position_x: number | null;
-    position_y: number | null;
-    width_m: number | null;
-    length_m: number | null;
-  }) => ({
+  const occupied = existingFieldPlacements.map((field) => ({
     x: field.position_x ?? 24,
     y: field.position_y ?? 24,
     width: getFieldPreviewSize(field.width_m, field.length_m).width,
